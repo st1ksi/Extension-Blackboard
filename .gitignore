@@ -1,0 +1,38 @@
+# Local dependencies
+node_modules/
+
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Package-manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test reports and local build artifacts
+/coverage/
+/.nyc_output/
+/playwright-report/
+/test-results/
+/outputs/
+/backups/
+/Simulation-Blackboard-*.zip
+/Simulation-Blackboard-*.zip.sha256
+
+# Editor settings and temporary files
+/.vscode/
+/.idea/
+*.swp
+*.swo
+*.tmp
+*.bak
+*~
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

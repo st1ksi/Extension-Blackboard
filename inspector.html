@@ -1,0 +1,40 @@
+<section id="blackboard-inspector" class="blackboard-dashboard bb-inspector" role="dialog" aria-modal="false" aria-labelledby="bb-inspector-title" hidden>
+    <header class="bb-dash-header">
+        <div><span class="bb-dash-eyebrow">OBJECTIVE REALITY</span><h2 id="bb-inspector-title">Objective Blackboard</h2></div>
+        <div class="bb-board-header-actions"><button type="button" data-board-settings title="Open Control Panel">Control Panel <span aria-hidden="true">↗</span></button><button type="button" class="bb-dash-close" data-board-close aria-label="Close Blackboard" title="Close Blackboard (Escape)">&times;</button></div>
+    </header>
+    <div class="bb-board-context" data-board-context></div>
+    <div class="bb-board-body">
+        <div class="bb-board-metrics" aria-label="Board statistics">
+            <span><strong data-board-blocks>0</strong> blocks</span><span data-board-budget><strong data-board-tokens>0</strong> tokens <span class="bb-board-dim">/ <span data-board-corridor></span></span></span><span class="bb-board-dim"><span data-board-chars>0</span> characters</span>
+        </div>
+        <details class="bb-dash-details bb-board-diagnostics">
+            <summary>Progression &amp; unchanged blocks</summary>
+            <div class="bb-board-diagnostics-body"><p class="bb-dash-hint" data-board-progression></p><p class="bb-dash-hint" data-board-stale></p></div>
+        </details>
+        <div class="bb-board-navigation">
+            <label><span class="bb-dash-sr">Filter block links</span><input type="search" data-board-filter placeholder="Find block…" autocomplete="off"></label>
+            <div class="bb-board-views" role="group" aria-label="Board view">
+                <button type="button" data-board-view="blocks" aria-pressed="true" aria-controls="bb-board-cards">Blocks</button>
+                <button type="button" data-board-view="source" aria-pressed="false" aria-controls="bb-board-editor" title="Edit the complete board text">Full text</button>
+            </div>
+        </div>
+        <nav class="bb-board-chips" data-board-chips aria-label="Jump to a Blackboard block"></nav>
+        <details class="bb-dash-details bb-board-tools">
+            <summary>Editing tools</summary>
+            <div class="bb-dash-actions">
+                <button type="button" data-board-insert="SCENE">+ Scene</button><button type="button" data-board-insert="ENTITIES">+ Entity</button><button type="button" data-board-insert="NARRATIVE">+ Narrative</button><button type="button" data-board-insert="LORE">+ Lore</button><button type="button" data-board-insert="MISC">+ Misc</button>
+                <button type="button" data-board-tidy>Tidy</button><button type="button" data-board-clear>Clear draft</button>
+            </div>
+        </details>
+        <div class="bb-board-conflict" data-board-conflict role="status" hidden>The saved board changed while you were editing. Your draft is retained. Copy it if needed, then load the latest board before saving.</div>
+        <div id="bb-board-cards" class="bb-board-cards" data-board-cards role="region" aria-label="Blackboard blocks" tabindex="0"></div>
+        <label class="bb-dash-sr" for="bb-board-editor">Blackboard content</label>
+        <textarea id="bb-board-editor" data-board-editor spellcheck="false" placeholder="The board is empty. The model will initialize it during play. You can also add blocks using Editing tools." hidden></textarea>
+    </div>
+    <footer class="bb-dash-footer bb-board-footer">
+        <span class="bb-board-status" data-board-status role="status" aria-live="polite">Up to date</span>
+        <div class="bb-dash-actions"><button type="button" data-board-copy>Copy</button><button type="button" data-board-reload>Load latest</button><button type="button" class="bb-dash-primary" data-board-save>Save changes</button></div>
+        <small>Edit a card with its pencil, or use Full text. Changes apply only after Save. Hidden world facts may contain spoilers.</small>
+    </footer>
+</section>

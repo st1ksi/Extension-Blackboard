@@ -1,0 +1,75 @@
+<div id="blackboard_modal_content" class="blackboard-modal-container">
+    <div class="blackboard-header-row flex-container flexBetween alignItemsCenter marginBot10">
+        <div class="flex-container alignItemsCenter flexGap10">
+            <h3 class="margin0"><i class="fa-solid fa-clipboard-list"></i> Objective Reality Blackboard</h3>
+        </div>
+        <div class="blackboard-stat-badge">
+            <span id="blackboard_blocks_badge" class="badge" title="Active Blocks">
+                <i class="fa-solid fa-layer-group"></i> <span id="blackboard_blocks_count">0</span> blocks
+            </span>
+            <span id="blackboard_token_badge" class="badge" title="Token Count and Fidelity Corridor">
+                <i class="fa-solid fa-microchip"></i> <span id="blackboard_token_count">0</span><span id="blackboard_corridor_wrap" style="opacity: 0.85;"> / <span id="blackboard_corridor_tokens">—</span></span> tokens
+            </span>
+            <span id="blackboard_char_badge" class="badge" title="Character Count">
+                <span id="blackboard_char_count">0</span> chars
+            </span>
+        </div>
+    </div>
+    <div class="notes marginBot10">
+        Single Source of Truth for the simulation. Holds objective realities outside of chat context.
+        Inject into prompt templates via <code>&#123;&#123;getvar::world_blackboard&#125;&#125;</code>. The model updates it autonomously via <code>UpdateBlackboard</code>.
+    </div>
+
+    <div id="blackboard_progression_summary" class="notes marginBot10" role="status"></div>
+    <div id="blackboard_stale_summary" class="notes marginBot10"></div>
+
+    <!-- Quick action buttons -->
+    <div class="blackboard-toolbar flex-container flexWrap flexGap5 marginBot10">
+        <span class="blackboard-toolbar-label">Insert:</span>
+        <button type="button" class="menu_button blackboard-insert-btn" data-tag="SCENE" title="Physical geometry, rooms, lighting, doors, traps, cover">
+            + [SCENE]
+        </button>
+        <button type="button" class="menu_button blackboard-insert-btn" data-tag="NARRATIVE" title="Root Truth, real culprit, hidden motives, curse mechanics">
+            + [NARRATIVE]
+        </button>
+        <button type="button" class="menu_button blackboard-insert-btn" data-tag="ENTITIES" title="Honest NPC statblocks, true item/key locations, passive perception">
+            + [ENTITIES]
+        </button>
+        <button type="button" class="menu_button blackboard-insert-btn" data-tag="LORE" title="Immutable facts, local magic laws, historical records">
+            + [LORE]
+        </button>
+        <button type="button" class="menu_button blackboard-insert-btn" data-tag="MISC" title="DM counters, stealth DC, alarm timers">
+            + [MISC]
+        </button>
+        <div class="flex-grow"></div>
+        <button type="button" id="blackboard_tidy_btn" class="menu_button" title="Clean up formatting and block spacing">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Tidy
+        </button>
+        <button type="button" id="blackboard_copy_btn" class="menu_button" title="Copy blackboard markdown to clipboard">
+            <i class="fa-solid fa-copy"></i> Copy
+        </button>
+        <button type="button" id="blackboard_clear_btn" class="menu_button danger" title="Clear all blackboard data for this chat">
+            <i class="fa-solid fa-trash"></i> Clear
+        </button>
+    </div>
+
+    <!-- Active blocks chips container (auto-generated) -->
+    <div id="blackboard_active_chips" class="blackboard-chips-container flex-container flexWrap flexGap5 marginBot10" style="display: none;"></div>
+
+    <!-- Textarea -->
+    <div class="blackboard-editor-wrap marginBot10">
+        <textarea id="blackboard_textarea" class="text_pole blackboard-textarea" rows="18" placeholder="Objective state is empty. Enter blocks like:&#10;&#10;[SCENE #location]&#10;- Details...&#10;&#10;[ENTITIES #name]&#10;- Stats / Inventory...&#10;&#10;[MISC #tag]&#10;- Notes..."></textarea>
+    </div>
+
+    <!-- Footer info and save buttons -->
+    <div class="blackboard-footer flex-container flexBetween alignItemsCenter">
+        <div class="blackboard-status-text text-muted" id="blackboard_status_text">
+            Ready
+        </div>
+        <div class="flex-container flexGap10">
+            <button type="button" id="blackboard_save_btn" class="menu_button menu_button_primary">
+                <i class="fa-solid fa-floppy-disk"></i> Save Changes
+            </button>
+        </div>
+    </div>
+</div>

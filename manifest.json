@@ -1,0 +1,14 @@
+{
+    "display_name": "Simulation Blackboard",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "st1ksi",
+    "version": "1.12.1",
+    "minimum_client_version": "1.19.0",
+    "generate_interceptor": "objectiveBlackboardPrivateGeneration",
+    "homePage": "https://github.com/st1ksi/Extension-Blackboard",
+    "auto_update": true
+}

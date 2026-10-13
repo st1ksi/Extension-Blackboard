@@ -1,0 +1,11 @@
+{
+  "name": "objective-blackboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-vm-modules --test tests/*.test.mjs",
+    "test:browser": "node tests/dashboard.browser.mjs",
+    "sync-prompt": "node scripts/sync-prompt.mjs",
+    "sync-systems": "node scripts/sync-systems.mjs"
+  }
+}

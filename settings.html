@@ -1,0 +1,176 @@
+<div class="blackboard_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Simulation Blackboard (Objective Reality)</b>
+            <div class="inline-drawer-icon fa-solid interactable up fa-circle-chevron-up" tabindex="0"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <button id="blackboard_open_dashboard" type="button" class="blackboard-dashboard-launcher" aria-controls="blackboard-dashboard" aria-expanded="false" aria-haspopup="dialog">
+                <span class="bb-launch-icon fa-solid fa-sliders" aria-hidden="true"></span>
+                <span><strong>Open control panel</strong><small>All settings in a dedicated interface</small></span>
+                <span class="bb-launch-arrow" aria-hidden="true">↗</span>
+            </button>
+            <div class="marginBot10">
+                <label class="checkbox_label" for="blackboard_function_tool">
+                    <input id="blackboard_function_tool" type="checkbox">
+                    <span>Enable Simulation Blackboard</span>
+                </label>
+            </div>
+            <small class="text-muted block marginBot10">Controls world-state updates, simulation instructions and Private Turns. Automatic scene backgrounds have their own switch.</small>
+            <div class="marginBot10">
+                <label class="checkbox_label" for="blackboard_auto_inject_prompt">
+                    <input id="blackboard_auto_inject_prompt" type="checkbox">
+                    <span>Auto-inject Instructions & Blackboard into System Prompt</span>
+                </label>
+            </div>
+            <div class="marginBot10">
+                <label class="checkbox_label" for="blackboard_history_rollback">
+                    <input id="blackboard_history_rollback" type="checkbox">
+                    <span>Auto-rollback Blackboard on Message Delete, Swipe & Branching</span>
+                </label>
+            </div>
+            <div class="marginBot10">
+                <div id="blackboard_open_from_settings" class="menu_button">
+                    <i class="fa-solid fa-clipboard-list"></i> Open Blackboard Inspector
+                </div>
+            </div>
+
+            <div class="marginBot10">
+                <label class="checkbox_label"><input id="blackboard_private_review" type="checkbox"><span>Private Turns — checks before publication</span></label>
+                <small id="blackboard_execution_status" class="text-muted block"></small>
+                <small id="blackboard_private_capabilities" class="text-muted block marginTop5" role="status" aria-live="polite"></small>
+                <small class="text-muted block">Independent of fidelity and game system. When enabled: four private checks (time &amp; actors, facts &amp; resources, reachable space, final answer). Issues persist until resolved or refuted; repairs restart checks. At least four audit requests; requires a single-character Chat Completion chat with tools and Blackboard auto-injection. No streaming during the private cycle. When disabled: normal generation with an internal self-check.</small>
+                <label for="blackboard_private_format">Working version history (audits also receive the full current board):</label>
+                <select id="blackboard_private_format" class="text_pole">
+                    <option value="diff">Versioned changes (baseline + before/after)</option>
+                    <option value="full">Full snapshots of every revision</option>
+                </select>
+                <div id="blackboard_private_export" class="menu_button">Export last private turn</div>
+                <small class="text-muted">Local JSON includes hidden state, every audit, candidate revision and the issue ledger with closure reasons. Report stays in this tab; recovery checkpoints also persist locally. Neither enters chat or vector memory. Export before starting another turn.</small>
+            </div>
+
+            <div class="inline-drawer marginBot10">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <span>Execution Mode Instructions (read-only)</span>
+                    <div class="inline-drawer-icon fa-solid interactable down fa-circle-chevron-down" tabindex="0"></div>
+                </div>
+                <div class="inline-drawer-content" style="display: none;">
+                    <small>Appended after quality and game-system instructions. Private requests also receive their current stage's task. Changing this mode does not edit your quality prompt.</small>
+                    <textarea id="blackboard_turn_instructions" class="text_pole textarea_compact blackboard_prompt_textarea" rows="8" readonly></textarea>
+                </div>
+            </div>
+
+            <div class="marginBot10">
+                <label for="blackboard_game_system"><b>Game system:</b></label>
+                <select id="blackboard_game_system" class="text_pole">
+                    <option value="universal">Universal</option>
+                    <option value="dnd5e">D&amp;D 5e (2014 / 2024)</option>
+                </select>
+                <small id="blackboard_game_system_desc" class="text-muted block marginTop5"></small>
+                <small class="text-muted block">This global setting changes instructions and advancement validation, not existing chat snapshots. Select the appropriate profile when changing campaigns.</small>
+            </div>
+
+            <!-- Simulation Fidelity & Token Budget Corridor -->
+            <div class="inline-drawer marginBot10">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <span>Simulation Fidelity & Token Budget</span>
+                    <div class="inline-drawer-icon fa-solid interactable up fa-circle-chevron-up" tabindex="0"></div>
+                </div>
+                <div class="inline-drawer-content">
+                    <div class="marginBot10">
+                        <label for="blackboard_fidelity_select"><b>Fidelity Tier:</b></label>
+                        <select id="blackboard_fidelity_select" class="text_pole">
+                            <option value="low">Low</option>
+                            <option value="mid" selected>Mid</option>
+                            <option value="high">High</option>
+                            <option value="ultra">Ultra</option>
+                            <option value="custom">Custom (User Defined)</option>
+                        </select>
+                        <small id="blackboard_fidelity_desc" class="text-muted block marginTop5" style="line-height: 1.35;"></small>
+                    </div>
+
+                    <div class="flex-container flexGap10 marginBot10">
+                        <div class="flex-grow">
+                            <label for="blackboard_min_tokens"><small>Target Min Tokens:</small></label>
+                            <input id="blackboard_min_tokens" type="number" min="100" max="100000" class="text_pole">
+                        </div>
+                        <div class="flex-grow">
+                            <label for="blackboard_max_tokens"><small>Target Max Tokens:</small></label>
+                            <input id="blackboard_max_tokens" type="number" min="200" max="200000" class="text_pole">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Prompt Instructions -->
+            <div class="inline-drawer marginBot10">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <span>System Prompt Instructions</span>
+                    <div class="inline-drawer-icon fa-solid interactable down fa-circle-chevron-down" tabindex="0"></div>
+                </div>
+                <div class="inline-drawer-content" style="display: none;">
+                    <small>Shared quality instructions; the selected game profile is appended separately. Automatically matches the Fidelity Tier. Contains simulation laws and the <code>&#123;&#123;getvar::world_blackboard&#125;&#125;</code> macro.</small>
+                    <small id="blackboard_custom_system_notice" class="text-muted block"></small>
+                    <textarea id="blackboard_custom_prompt" class="text_pole textarea_compact blackboard_prompt_textarea" rows="12"></textarea>
+                    <div class="marginTop5 flex-row gap5">
+                        <div id="blackboard_save_prompt" class="menu_button">
+                            <i class="fa-solid fa-floppy-disk"></i> Save Custom Prompt
+                        </div>
+                        <div id="blackboard_reset_prompt" class="menu_button">
+                            <i class="fa-solid fa-rotate-left"></i> Reset to Preset Default
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="inline-drawer marginBot10">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <span>Game Profile Instructions (read-only)</span>
+                    <div class="inline-drawer-icon fa-solid interactable down fa-circle-chevron-down" tabindex="0"></div>
+                </div>
+                <div class="inline-drawer-content" style="display: none;">
+                    <small>Appended after the shared quality instructions. Existing campaign rules and explicit exceptions are preserved.</small>
+                    <textarea id="blackboard_game_profile_preview" class="text_pole textarea_compact blackboard_prompt_textarea" rows="8" readonly></textarea>
+                </div>
+            </div>
+
+            <!-- Scene Background Generation -->
+            <div class="inline-drawer marginBot10">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <span>Scene Background Generation (Image Gen)</span>
+                    <div class="inline-drawer-icon fa-solid interactable down fa-circle-chevron-down" tabindex="0"></div>
+                </div>
+                <div class="inline-drawer-content" style="display: none;">
+                    <div class="marginBot10">
+                        <label class="checkbox_label" for="blackboard_auto_scene_background">
+                            <input id="blackboard_auto_scene_background" type="checkbox">
+                            <span>Automatic scene backgrounds</span>
+                        </label>
+                        <small class="text-muted block marginTop5" style="line-height: 1.35;">
+                            Separately enables instructions and the tool for generating and applying backgrounds. Works with every fidelity tier and game profile, with or without Private Turns. Requires the Image Generation extension to be configured. Disabling this preserves the current background.
+                        </small>
+                        <small id="blackboard_background_status" class="text-muted block marginTop5" aria-live="polite"></small>
+                    </div>
+                    <div class="marginBot10">
+                        <label for="blackboard_background_custom_prompt"><small>Separate background instructions (injected only when backgrounds and prompt auto-injection are enabled):</small></label>
+                        <textarea id="blackboard_background_custom_prompt" class="text_pole textarea_compact blackboard_prompt_textarea" rows="8"></textarea>
+                        <div class="marginTop5 flex-row gap5">
+                            <div id="blackboard_save_bg_prompt" class="menu_button">
+                                <i class="fa-solid fa-floppy-disk"></i> Save Instructions
+                            </div>
+                            <div id="blackboard_reset_bg_prompt" class="menu_button">
+                                <i class="fa-solid fa-rotate-left"></i> Reset to Default
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="notes">
+                <p><b>Persistent Single Source of Truth</b> for objective world state (prevents Quantum Ogre syndrome & sycophancy).</p>
+                <p><b>Auto-Injection:</b> Automatically appends the simulation instructions and current blackboard state to the System Prompt. No manual preset editing needed.</p>
+                <p><b>Time Travel & Branching:</b> Rolling back history, deleting messages, swiping, or branching automatically restores the blackboard without polluting Vector Storage or model context.</p>
+            </div>
+        </div>
+    </div>
+</div>
