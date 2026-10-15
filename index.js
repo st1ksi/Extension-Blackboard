@@ -4,6 +4,7 @@ export { DEFAULT_BACKGROUND_SYSTEM_PROMPT };
 import { installPrivateRunner, downloadPrivateReport, clearPrivateReport } from './private-runner.js';
 import { GAME_SYSTEMS, gameSystem, composeGamePrompt, resolveQualityPrompt, GENERIC_PROGRESSION_TOOL } from './game-profiles.js';
 import { executionInstructions, migrateExecutionSettings } from './turn-instructions.js';
+import { normalizePrivateReviewMode } from './private-modes.js';
 import { privateTurnCapabilities } from './capabilities.js';
 import { installSettingsDashboard } from './dashboard.js';
 import { installBoardInspector } from './inspector.js';
@@ -85,6 +86,7 @@ const defaultSettings = Object.freeze({
     autoInjectPrompt: true,
     historyRollback: true,
     privateReview: false,
+    privateReviewMode: 'heavy',
     executionModeVersion: 1,
     privateReviewFormat: 'diff',
     simulationFidelity: 'mid',
@@ -146,6 +148,7 @@ function getSettings() {
             extensionSettings[MODULE_NAME][key] = defaultSettings[key];
         }
     }
+    extensionSettings[MODULE_NAME].privateReviewMode = normalizePrivateReviewMode(extensionSettings[MODULE_NAME].privateReviewMode);
     return extensionSettings[MODULE_NAME];
 }
 
@@ -732,15 +735,28 @@ async function addSettingsDrawer() {
             const capabilities = privateTurnCapabilities();
             $('#blackboard_private_capabilities').text(capabilities.message);
             $('#blackboard_turn_instructions').val(executionInstructions(settings));
-            $('#blackboard_private_format').prop('disabled', !settings.functionTool || !settings.privateReview || !capabilities.supported);
+            const privateOptionsDisabled = !settings.functionTool || !settings.privateReview || !capabilities.supported;
+            $('#blackboard_private_mode').prop('disabled', privateOptionsDisabled);
+            $('#blackboard_private_format').prop('disabled', privateOptionsDisabled);
+            const reviewMode = normalizePrivateReviewMode(settings.privateReviewMode);
+            $('#blackboard_private_mode').val(reviewMode);
+            $('#blackboard_private_mode_desc').text(reviewMode === 'light'
+                ? 'Light: one combined detection pass records issues, then one correction pass addresses them. No additional model verification; local validation remains. Tool continuations or request retries may add calls.'
+                : 'Heavy: specialized audits, targeted repairs when needed, and model verification. Repairs can restart earlier checks; more model calls and a longer wait.');
             $('#blackboard_execution_status').text(!settings.functionTool
                 ? 'Simulation Blackboard is disabled. Private Turns are inactive; their settings are retained.'
                 : settings.privateReview
                 ? capabilities.supported
-                    ? 'Private Turns: separate checks before publication. Available at every fidelity tier.'
+                    ? `Private Turns (${reviewMode === 'light' ? 'Light' : 'Heavy'}): checks before publication. Available at every fidelity tier.`
                     : 'Private Turns enabled but blocked in this browser. No automatic fallback to standard generation.'
                 : 'Standard: self-check within the ordinary generation; no separate audit requests.');
         }
+        $('#blackboard_private_mode').val(settings.privateReviewMode).on('change', function () {
+            settings.privateReviewMode = normalizePrivateReviewMode($(this).val());
+            updateExecutionUI();
+            SillyTavern.getContext().saveSettingsDebounced?.();
+            syncExtensionPrompt();
+        });
         $('#blackboard_private_format').val(settings.privateReviewFormat).on('change', function () {
             settings.privateReviewFormat = $(this).val() === 'full' ? 'full' : 'diff';
             SillyTavern.getContext().saveSettingsDebounced?.();

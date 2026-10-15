@@ -2,7 +2,8 @@ import { PRIVATE_PROTOCOL } from './turn-instructions.js';
 import { PRIVATE_BACKGROUND_PROTOCOL } from './background-instructions.js';
 import { applyUpdate, parseBlocks, validateBoard } from './state.js';
 import { normalizeDiceArguments, diceResult, emptyDiceError, recoverEmptyDiceCheckpoint } from './dice.js';
-import { REVIEW_STAGES, makeAudit, reviewProtocol, repairProtocol, validateAudit, affectedReviewStages } from './review.js';
+import { REVIEW_STAGES, makeAudit, reviewProtocol, repairProtocol, validateAudit, validateEvidence, affectedReviewStages } from './review.js';
+import { normalizePrivateReviewMode, LIGHT_REVIEW_STAGE, LIGHT_REPAIR_PROTOCOL, validateLightCorrection } from './private-modes.js';
 import { pendingIssues, captureIssues, acceptIssueReport, reopenIssueVerdicts, stageFindings } from './issue-ledger.js';
 
 export const PROCESS_KEY = 'misc #simulation_processes';
@@ -95,14 +96,22 @@ export class DraftTurn {
 export { PRIVATE_PROTOCOL } from './turn-instructions.js';
 
 /** Serializable state machine. Checkpoints are private, never chat messages. */
-export async function runPrivateTurn({ baseline, mode, gameSystem = 'dnd5e', backgroundsEnabled = true, context, request, invoke, signal, assertCurrent = () => {}, onProgress = () => {}, maxRepairs = 4, checkpoint = null, saveCheckpoint = async () => {} }) {
+export async function runPrivateTurn({ baseline, mode, reviewMode = 'heavy', gameSystem = 'dnd5e', backgroundsEnabled = true, context, request, invoke, signal, assertCurrent = () => {}, onProgress = () => {}, maxRepairs = 4, checkpoint = null, saveCheckpoint = async () => {} }) {
+    const selectedReviewMode = normalizePrivateReviewMode(reviewMode);
     const state = checkpoint ? structuredClone(checkpoint) : {
         version: 4, draft: new DraftTurn(baseline, mode, gameSystem), context, phase: 'simulate', step: 0,
+        reviewMode: selectedReviewMode,
         candidate: '', feedback: null, answer: null, callIndex: 0, failedUpdate: false,
         pending: null, inFlightTool: null, review: null, maxRepairs,
-        stats: { mode: mode || 'diff', requests: 0, reviews: 0, repairs: 0, inputChars: 0, outputChars: 0, started: Date.now() },
+        stats: { mode: mode || 'diff', reviewMode: selectedReviewMode, requests: 0, reviews: 0, repairs: 0, inputChars: 0, outputChars: 0, started: Date.now() },
     };
     if (![1, 2, 3, 4].includes(state.version) || state.draft.baseline !== baseline) throw new Error('Incompatible checkpoint or changed baseline');
+    // Checkpoints from before review modes are always the original heavy cycle.
+    state.reviewMode = normalizePrivateReviewMode(state.reviewMode);
+    if (state.reviewMode !== selectedReviewMode) throw new Error('Private review mode changed; restore the checkpoint mode before resuming.');
+    state.stats.reviewMode = state.reviewMode;
+    const reviewStages = state.reviewMode === 'light' ? [LIGHT_REVIEW_STAGE] : REVIEW_STAGES;
+    const isLight = state.reviewMode === 'light';
     const legacyCheckpoint = state.version < 3;
     if (legacyCheckpoint) {
         // Preserve simulation/tools in flight. An old broad approval cannot stand
@@ -172,7 +181,7 @@ export async function runPrivateTurn({ baseline, mode, gameSystem = 'dnd5e', bac
         }
     }
     const stats = state.stats;
-    const findings = () => stageFindings(state.issueLedger, REVIEW_STAGES.map(s => s.id));
+    const findings = () => stageFindings(state.issueLedger, reviewStages.map(s => s.id));
     const save = () => {
         state.stageFindings = findings();
         return saveCheckpoint(structuredClone(state));
@@ -191,7 +200,7 @@ export async function runPrivateTurn({ baseline, mode, gameSystem = 'dnd5e', bac
         if (!state.pending) {
             if (stats.requests >= 48) throw new Error('Private turn request limit exceeded');
             const phase = state.phase;
-            const stage = REVIEW_STAGES[state.auditIndex].id;
+            const stage = reviewStages[state.auditIndex].id;
             const allowed = phase === 'review' ? [] : phase === 'repair' ? ['UpdateBlackboard'] : simulationTools;
             const issues = pendingIssues(state.issueLedger, stage);
             const issuePacket = issues.map(({ history, ...issue }) => ({ ...issue,
@@ -201,8 +210,10 @@ export async function runPrivateTurn({ baseline, mode, gameSystem = 'dnd5e', bac
                 audit: { ...makeAudit(draft, stage, state.candidateId), purpose: state.reviewKind }, review_kind: state.reviewKind,
                 ...(state.reviewKind === 'verify' ? repairEvidence() : {}), mechanical_errors: draft.checks(), format_feedback: state.formatFeedback ?? null,
                 current_board: draft.head, issue_ledger: issuePacket, pending_issue_ids: issues.map(i => i.id), reference_context: state.context } : { feedback: state.feedback, previous_candidate: state.candidate,
-                ...(phase === 'repair' ? { stage, current_board: draft.head, issues_to_fix: issuePacket.filter(i => i.status === 'open'), reference_context: state.context } : {}) };
-            const protocol = phase === 'review' ? reviewProtocol(stage, state.reviewKind) : phase === 'repair' ? PRIVATE_PROTOCOL + '\n' + repairProtocol(stage)
+                ...(phase === 'repair' ? { stage, candidate_id: state.candidateId, current_board: draft.head,
+                    issues_to_fix: issuePacket.filter(i => isLight || i.status === 'open'), reference_context: state.context,
+                    ...(isLight ? { ...repairEvidence(), mechanical_errors: draft.checks(), format_feedback: state.formatFeedback ?? null } : {}) } : {}) };
+            const protocol = phase === 'review' ? reviewProtocol(stage, state.reviewKind) : phase === 'repair' ? (isLight ? LIGHT_REPAIR_PROTOCOL : PRIVATE_PROTOCOL + '\n' + repairProtocol(stage))
                 : PRIVATE_PROTOCOL + (backgroundsEnabled ? '\n\n' + PRIVATE_BACKGROUND_PROTOCOL : '');
             // The auditor receives campaign context as reference data, with its
             // own system role. It does not inherit the live DM task/assistant role.
@@ -219,7 +230,7 @@ export async function runPrivateTurn({ baseline, mode, gameSystem = 'dnd5e', bac
             stats.inputChars += JSON.stringify(messages).length;
             await save();
         }
-        onProgress(progressPhase(), draft.revision, stats, state.phase === 'simulate' ? null : REVIEW_STAGES[state.auditIndex].id);
+        onProgress(progressPhase(), draft.revision, stats, state.phase === 'simulate' ? null : reviewStages[state.auditIndex].id);
         const answer = await request(state.pending.messages, state.pending.allowed);
         // Persist the received result even when Stop was clicked at the same
         // boundary. Resuming processes it; no request or dice need repeating.
@@ -229,7 +240,7 @@ export async function runPrivateTurn({ baseline, mode, gameSystem = 'dnd5e', bac
         state.failedUpdate = false;
         stats.outputChars += JSON.stringify(answer).length;
         stats.responses ??= [];
-        stats.responses.push({ phase: state.phase, review_kind: state.phase === 'review' ? state.reviewKind : null, stage: state.phase === 'simulate' ? null : REVIEW_STAGES[state.auditIndex].id, revision: draft.revision, model: answer.model ?? null, usage: answer.usage ?? null, finishReason: answer.finishReason ?? null });
+        stats.responses.push({ phase: state.phase, review_kind: state.phase === 'review' ? state.reviewKind : null, stage: state.phase === 'simulate' ? null : reviewStages[state.auditIndex].id, revision: draft.revision, model: answer.model ?? null, usage: answer.usage ?? null, finishReason: answer.finishReason ?? null });
         await save();
         guard();
     };
@@ -247,7 +258,7 @@ export async function runPrivateTurn({ baseline, mode, gameSystem = 'dnd5e', bac
             if (answer?.error) throw new Error(typeof answer.error === 'string' ? answer.error : JSON.stringify(answer.error));
             if (state.phase === 'review') {
                 const checks = draft.checks();
-                const stage = REVIEW_STAGES[state.auditIndex].id;
+                const stage = reviewStages[state.auditIndex].id;
                 const audit = makeAudit(draft, stage, state.candidateId);
                 const pending = structuredClone(pendingIssues(state.issueLedger, stage));
                 let review, parsed, observed = [];
@@ -256,6 +267,16 @@ export async function runPrivateTurn({ baseline, mode, gameSystem = 'dnd5e', bac
                     parsed = parseJson(answer.text);
                     observed = captureIssues(state.issueLedger, parsed, audit, state.auditLog.length);
                     review = validateAudit(parsed, audit, draft, state.candidate, state.context, pending);
+                    if (isLight && review.time_correction !== undefined) {
+                        const correction = review.time_correction;
+                        if (!correction || !String(correction.reason ?? '').trim()) throw new Error('Time correction needs a concrete reason');
+                        absoluteTime(correction.through);
+                        validateEvidence(correction.evidence, draft, state.candidate, state.context);
+                        if (!review.issues.some(issue => issue.target === 'time')
+                            && !pending.some(issue => issue.target === 'time' && review.issue_resolutions?.some(item => item.id === issue.id && item.status === 'open'))) {
+                            throw new Error('Time correction requires a recorded time finding');
+                        }
+                    }
                 } catch (e) {
                     state.auditLog.push({ stage, purpose: state.reviewKind, revision: draft.revision, candidate_id: state.candidateId, status: 'invalid_report', error: e.message, raw: answer, targets: audit.targets });
                     state.formatAttempts++;
@@ -285,6 +306,20 @@ export async function runPrivateTurn({ baseline, mode, gameSystem = 'dnd5e', bac
                 }
                 if (review.verdict === 'blocked') {
                     state.haltReason = `Review "${audit.label}" requires a missing decision or a new dice roll. Turn saved: ${pendingIssues(state.issueLedger, stage).map(i => i.problem).join('; ')}`;
+                } else if (isLight) {
+                    // One combined detection is followed by ONE correction stage,
+                    // even for a clean report. Tools may continue that stage but
+                    // never dispatch another semantic audit or verification.
+                    state.feedback = { review, mechanical_errors: checks };
+                    state.repairStart = { revision: draft.revision, candidate_id: state.candidateId, candidate: state.candidate };
+                    state.lightResolvedTime = map(draft.head).get('misc #world_clock')?.match(/(?:Current In-Game Time|Time):\s*(Day \d+,? \d{2}:\d{2}:\d{2})/i)?.[1] ?? null;
+                    if (!state.lightResolvedTime) {
+                        try { state.lightResolvedTime = parseJson(map(draft.head).get(PROCESS_KEY)).through; } catch { /* The detector must supply the missing endpoint. */ }
+                    }
+                    if (review.time_correction) state.lightResolvedTime = review.time_correction.through;
+                    stats.repairs++;
+                    state.repairsByStage[stage] = 1;
+                    state.phase = 'repair'; state.step = 0;
                 } else if (review.verdict === 'pass' && !checks.length && !pendingIssues(state.issueLedger, stage).length) {
                     state.approvals = state.approvals.filter(r => r.stage !== stage);
                     state.approvals.push({ ...review, purpose: state.reviewKind });
@@ -367,6 +402,67 @@ export async function runPrivateTurn({ baseline, mode, gameSystem = 'dnd5e', bac
                     guard();
                 }
             } else {
+                if (isLight && state.phase === 'repair') {
+                    const stage = 'light';
+                    const issues = pendingIssues(state.issueLedger, stage);
+                    let correction, parsed;
+                    try {
+                        parsed = parseJson(answer.text);
+                        correction = validateLightCorrection(parsed, draft, state.candidateId, state.context, issues, validateEvidence, state.repairStart.candidate);
+                    } catch (e) {
+                        state.auditLog.push({ stage, purpose: 'correct', revision: draft.revision, candidate_id: state.candidateId, status: 'invalid_report', error: e.message, raw: answer });
+                        state.formatAttempts++;
+                        state.formatFeedback = { error: e.message, previous_report: parsed ?? answer.text,
+                            instruction: 'Repair only this correction envelope. Preserve the candidate, all already staged edits, binding dice and every recorded issue. Supply the current revision and the original candidate_id; do not resolve another gameplay interval.' };
+                        if (state.formatAttempts >= 2) {
+                            state.haltKind = 'format';
+                            state.haltReason = 'The correction component returned an invalid report twice. Turn saved; Resume repeats only this correction stage.';
+                        }
+                        state.answer = null;
+                        await save();
+                        continue;
+                    }
+                    const previousCandidateId = state.candidateId;
+                    state.candidate = correction.candidate;
+                    state.candidateId++;
+                    state.candidateVersions.push({ id: state.candidateId, revision: draft.revision, phase: 'repair', text: state.candidate });
+                    const logIndex = state.auditLog.length;
+                    for (const resolution of correction.issue_resolutions) {
+                        const issue = state.issueLedger.find(item => item.id === resolution.id);
+                        issue.status = resolution.status;
+                        issue.resolution_by = 'repair';
+                        issue.history.push({ event: resolution.status, component: 'repair', independently_verified: false,
+                            log_index: logIndex, revision: draft.revision, candidate_id: state.candidateId,
+                            reason: resolution.reason, evidence: structuredClone(resolution.evidence) });
+                    }
+                    const checks = draft.checks();
+                    const currentTime = map(draft.head).get('misc #world_clock')?.match(/(?:Current In-Game Time|Time):\s*(Day \d+,? \d{2}:\d{2}:\d{2})/i)?.[1];
+                    if (!state.lightResolvedTime || (currentTime && absoluteTime(currentTime) !== absoluteTime(state.lightResolvedTime))) {
+                        checks.push('Light correction changed the resolved clock without the detection pass explicitly recording this corrected endpoint.');
+                    }
+                    const audit = makeAudit(draft, stage, state.candidateId);
+                    for (const error of checks) {
+                        const ids = captureIssues(state.issueLedger, { stage, revision: draft.revision, candidate_id: state.candidateId,
+                            issues: [{ target: 'time', problem: error, repair: 'Reconcile the existing resolved interval and mechanical invariants without another turn or new dice.' }] }, audit, logIndex);
+                        for (const id of ids) { const issue = state.issueLedger.find(item => item.id === id); issue.status = 'open'; issue.origin = 'mechanical'; }
+                    }
+                    if (correction.background_action === 'discard' || (correction.background_action === undefined
+                        && (draft.revision !== state.repairStart.revision || state.candidate !== state.repairStart.candidate))) draft.background = null;
+                    state.formatAttempts = 0; state.formatFeedback = null;
+                    state.auditLog.push({ stage, purpose: 'correct', revision: draft.revision, candidate_id: state.candidateId,
+                        status: 'corrected', report: correction, mechanical_errors: checks, independently_verified: false });
+                    state.review = { revision: draft.revision, candidate_id: state.candidateId, verdict: pendingIssues(state.issueLedger).length ? 'blocked' : 'pass',
+                        review_mode: 'light', independent_verification: false,
+                        stages: state.auditLog.filter(entry => entry.status === 'reviewed').map(entry => entry.report),
+                        correction: { ...correction, previous_candidate_id: previousCandidateId, candidate_id: state.candidateId } };
+                    if (pendingIssues(state.issueLedger).length) {
+                        state.haltKind = 'light_validation';
+                        state.haltReason = `Light publication blocked by unresolved findings. Turn saved without publication: ${pendingIssues(state.issueLedger).map(issue => issue.problem).join('; ')}`;
+                    } else state.phase = 'done';
+                    state.answer = null;
+                    await save();
+                    continue;
+                }
                 state.candidate = String(answer.text ?? '').trim();
                 if (!state.candidate) throw new Error('Empty candidate; no state committed');
                 state.candidateId++;
@@ -397,7 +493,7 @@ export async function runPrivateTurn({ baseline, mode, gameSystem = 'dnd5e', bac
         return { draft, candidate: state.candidate, stats, review: state.review, auditLog: state.auditLog, candidateVersions: state.candidateVersions, issueLedger: state.issueLedger, stageFindings: findings(), invalidationLog: state.invalidationLog };
     } catch (error) {
         error.privateTurn = { versions: draft.versions, rolls: draft.rolls, receipts: draft.receipts, candidate: state.candidate, feedback: state.feedback, stats, background: draft.background, backgroundRequests: draft.backgroundRequests,
-            auditLog: state.auditLog, candidateVersions: state.candidateVersions, issueLedger: state.issueLedger, stageFindings: findings(), invalidationLog: state.invalidationLog, review_kind: state.reviewKind, stage: REVIEW_STAGES[state.auditIndex]?.id, legacyReview: state.legacyReview };
+            auditLog: state.auditLog, candidateVersions: state.candidateVersions, issueLedger: state.issueLedger, stageFindings: findings(), invalidationLog: state.invalidationLog, review_kind: state.reviewKind, stage: reviewStages[state.auditIndex]?.id, legacyReview: state.legacyReview };
         throw error;
     }
 }

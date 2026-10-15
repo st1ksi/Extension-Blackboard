@@ -17,6 +17,7 @@ const output = process.env.BB_SCREENSHOTS;
 const stub = `
 export async function renderExtensionTemplateAsync(_path, name) { return await (await fetch('${prefix}' + name + '.html')).text(); }
 export function registerBlackboardPrivateRunner() {}
+export function getCurrentUserHandle() { return 'preview-user'; }
 export const SlashCommand = { fromProps: value => value };
 export const ARGUMENT_TYPE = { STRING: 'string' }, SlashCommandArgument = SlashCommand, SlashCommandNamedArgument = SlashCommand;
 export const commonEnumProviders = {};
@@ -36,7 +37,7 @@ const metadata = { variables: {} };
 const handlers = new Map();
 const events = ['CHAT_CHANGED','MESSAGE_DELETED','MESSAGE_SWIPED','GENERATION_STARTED','MESSAGE_RECEIVED','MESSAGE_SENT','TOOL_CALLS_PERFORMED','GENERATE_BEFORE_COMBINE_PROMPTS'];
 window.emit = async (name, ...args) => { for (const handler of handlers.get(name)||[]) await handler(...args); };
-window.context = { chat: [], chatId:'Preview campaign', characterId:1, chatMetadata:metadata, extensionSettings:{blackboard:{simulationFidelity:'ultra',privateReview:true,executionModeVersion:1}},
+window.context = { chat: [], chatId:'Preview campaign', characterId:1, characters:[{}, {avatar:'preview-hero.png'}], chatMetadata:metadata, extensionSettings:{blackboard:{simulationFidelity:'ultra',privateReview:true,executionModeVersion:1}},
 eventTypes:Object.fromEntries(events.map(e=>[e,e])), eventSource:{on(name,fn){const list=handlers.get(name)||[]; list.push(fn); handlers.set(name,list);}}, registerFunctionTool:tool=>registered.set(tool.name,tool), unregisterFunctionTool:name=>registered.delete(name),
 setExtensionPrompt:(key,value)=>injected.set(key,value), saveSettingsDebounced:()=>saves++,saveMetadataDebounced(){},saveChatDebounced(){},
 variables:{local:{get:key=>context.chatMetadata.variables[key],set:(key,value)=>context.chatMetadata.variables[key]=value}} };
@@ -404,6 +405,7 @@ try {
     assert.equal(await page.locator('#blackboard_function_tool').isChecked(), false);
     assert.equal(await mirror('auto_scene_background').isChecked(), true);
     assert.ok(await page.evaluate(() => !registered.has('UpdateBlackboard') && registered.has('SetSceneBackground') && injected.get('blackboard_system_prompt') === '' && !!injected.get('blackboard_bg_prompt')));
+    assert.equal(await mirror('private_mode').isDisabled(), true, 'Master off disables both mode controls.');
     // Programmatic change from the native/setup UI reflects in the custom view.
     await page.evaluate(() => $('#blackboard_function_tool').prop('checked', true).trigger('change'));
     assert.equal(await mirror('function_tool').isChecked(), true);
@@ -411,8 +413,22 @@ try {
     assert.equal((await settings()).privateReview, false);
     await panel.getByText('Private Turn options', {exact:true}).click();
     assert.equal(await mirror('private_format').isDisabled(), true);
+    assert.equal(await mirror('private_mode').isDisabled(), true);
     await mirror('private_review').check();
     assert.equal(await mirror('private_format').isDisabled(), false);
+    assert.equal(await mirror('private_mode').inputValue(), 'heavy', 'Existing installations retain the heavy workflow.');
+    assert.equal(await mirror('private_mode').isDisabled(), false);
+    await mirror('private_mode').selectOption('light');
+    assert.equal((await settings()).privateReviewMode, 'light');
+    assert.equal(await page.locator('#blackboard_private_mode').inputValue(), 'light');
+    assert.match(await panel.locator('[data-bb-text="blackboard_private_mode_desc"]').innerText(), /one|single/i);
+    await mirror('private_review').uncheck();
+    assert.equal(await mirror('private_mode').isDisabled(), true);
+    assert.equal((await settings()).privateReviewMode, 'light', 'Standard mode preserves the chosen review preference.');
+    await mirror('private_review').check();
+    assert.equal(await mirror('private_mode').inputValue(), 'light');
+    await page.evaluate(() => $('#blackboard_private_mode').val('heavy').trigger('change'));
+    assert.equal(await mirror('private_mode').inputValue(), 'heavy', 'Native mode changes synchronize the custom panel.');
     await mirror('private_format').selectOption('full');
     assert.equal((await settings()).privateReviewFormat, 'full');
     await panel.getByText('Private Turn options', {exact:true}).click();
@@ -422,6 +438,7 @@ try {
     await mirror('private_review').click();
     assert.equal(await mirror('private_review').isChecked(), false);
     assert.equal((await settings()).privateReview, false);
+    assert.equal(await mirror('private_mode').isDisabled(), true, 'Capability rejection also disables the mirrored mode selector.');
     assert.ok(await page.evaluate(() => notices.some(n => /unavailable/.test(n.text))));
     await page.evaluate(() => delete navigator.locks);
     await mirror('private_review').check();
@@ -490,6 +507,7 @@ try {
     assert.equal((await settings()).historyRollback, false);
     await panel.getByText('Advanced settings', {exact:true}).click();
     await panel.getByRole('button', {name:'Export private turn',exact:true}).click();
+    await page.waitForFunction(() => notices.some(n => /No private turn report/.test(n.text)));
     assert.ok(await page.evaluate(() => notices.some(n => /No private turn report/.test(n.text))));
 
     await panel.locator('.bb-dash-scroll').evaluate(e => e.scrollTop = 0);
@@ -512,9 +530,39 @@ try {
     assert.equal(await panel.isVisible(), false);
     await page.locator('[data-board-close]').click();
     await checkInspector(page, panel, origin);
+    await checkPrivateReportExport(page);
     assert.deepEqual(errors, []);
     console.log('Dashboard browser checks passed: real handlers, shared state/drafts, tools/prompts, actions, keyboard, desktop & mobile.');
 } finally {
     await browser?.close();
     server.close();
+}
+
+async function checkPrivateReportExport(page) {
+    await page.evaluate(async prefix => {
+        const {createPrivateReportArchive} = await import(prefix+'private-report-store.js');
+        const create=()=>createPrivateReportArchive({getContext:()=>context,getAccount:async()=> 'preview-user'});
+        const newer=create(),older=create(),key=await newer.key(),started=Date.now();
+        await Promise.all([
+            newer.save(key,{status:'committed',attempt_started:started+1,reviewMode:'light',candidate:'Persistent browser report sentinel.',auditLog:[{private:'Saved detector finding'}]}),
+            older.save(key,{status:'committed',attempt_started:started,reviewMode:'light',candidate:'Stale concurrent callback.',auditLog:[]}),
+        ]);
+        if((await create().load(key)).candidate!=='Persistent browser report sentinel.')throw new Error('Concurrent report save overwrote the newer attempt');
+    },prefix);
+    await page.reload();
+    await page.waitForSelector('#blackboard_open_dashboard');
+    await page.locator('#blackboard_open_dashboard').click();
+    const panel=page.locator('#blackboard-dashboard');
+    const pending=page.waitForEvent('download');
+    await panel.getByRole('button',{name:'Export private turn',exact:true}).click();
+    const download=await pending;
+    assert.equal(download.suggestedFilename(),'blackboard-private-turn.json');
+    const restored=JSON.parse(await readFile(await download.path(),'utf8'));
+    assert.equal(restored.status,'committed');assert.equal(restored.reviewMode,'light');
+    assert.equal(restored.auditLog[0].private,'Saved detector finding');
+    await page.evaluate(async()=>{context.chatId='Empty unrelated campaign';context.chat=[];context.chatMetadata={variables:{}};await emit('CHAT_CHANGED');});
+    await panel.getByRole('button',{name:'Export private turn',exact:true}).click();
+    await page.waitForFunction(()=>notices.some(n=>/No private turn report/.test(n.text)));
+    assert.equal(await page.evaluate(()=>JSON.stringify(context.chatMetadata).includes('auditLog')),false);
+    console.log('Private report browser checks passed: real IndexedDB, page reload, UI download and empty-chat isolation.');
 }

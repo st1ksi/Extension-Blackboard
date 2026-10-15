@@ -2,6 +2,7 @@
 // IndexedDB is scoped to this browser origin; Web Locks exclude concurrent tabs.
 import { stageLabel } from './review.js';
 import { privateTurnCapabilities } from './capabilities.js';
+import { normalizePrivateReviewMode, privateReviewModeLabel } from './private-modes.js';
 export function openCheckpointStore(indexedDB = () => globalThis.indexedDB) {
     let database;
     async function db() {
@@ -67,6 +68,7 @@ export function createRecovery({ getContext, getBoard, setBoard, settings, getAc
     }
     async function create(ctx, type, messages, scope) {
         const record = { version: 1, id: crypto.randomUUID(), key: scope, type, messages,
+            reviewMode: normalizePrivateReviewMode(settings().privateReviewMode),
             status: 'running', createdAt: new Date().toISOString(), baseline: getBoard(),
             engine: structuredClone(ctx.chatMetadata.blackboard_engine), history: historyKey(ctx.chat),
             connection: await digest(ctx.chatCompletionSettings), settings: await digest(settings()), checkpoint: null };
@@ -91,9 +93,18 @@ export function createRecovery({ getContext, getBoard, setBoard, settings, getAc
         // New default/profile and migration-marker fields must not strand old
         // checkpoints. Actual checkbox, fidelity or profile changes still reject.
         const compatibleSettings = [{ ...currentSettings }];
-        if (currentSettings.executionModeVersion === 1) {
-            const previous = { ...currentSettings }; delete previous.executionModeVersion;
+        // Adding the default heavy selector must not invalidate pre-mode saved
+        // turns. A real heavy/light change still needs the checkpoint setting.
+        if (normalizePrivateReviewMode(currentSettings.privateReviewMode) === 'heavy'
+            && normalizePrivateReviewMode(record.checkpoint?.reviewMode) === 'heavy') {
+            const previous = { ...currentSettings }; delete previous.privateReviewMode;
             compatibleSettings.push(previous);
+        }
+        if (currentSettings.executionModeVersion === 1) {
+            for (const settings of [...compatibleSettings]) {
+                const previous = { ...settings }; delete previous.executionModeVersion;
+                compatibleSettings.push(previous);
+            }
         }
         if (!record.checkpoint?.draft?.gameSystem && currentSettings.gameSystem === 'dnd5e') {
             for (const settings of [...compatibleSettings]) {
@@ -155,7 +166,7 @@ export function recoveryPanel() {
         panel?.remove(); panel = null;
         if (!record) return;
         panel = document.createElement('div'); panel.id = 'blackboard-recovery';
-        const title = document.createElement('strong'); title.textContent = 'Objective Blackboard'; panel.append(title);
+        const title = document.createElement('strong'); title.textContent = `Objective Blackboard · ${privateReviewModeLabel(record.checkpoint?.reviewMode ?? record.reviewMode)} Private Turns`; panel.append(title);
         const status = document.createElement('div'); status.style.margin = '8px 0'; panel.append(status);
         const describe = () => {
             const revision = record.checkpoint?.draft?.revision ?? Math.max(0, (record.checkpoint?.draft?.versions?.length ?? 1) - 1);

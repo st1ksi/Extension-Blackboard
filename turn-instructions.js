@@ -1,4 +1,5 @@
 // Execution instructions are independent of fidelity and game-system profiles.
+import { normalizePrivateReviewMode } from './private-modes.js';
 export const STANDARD_TURN_INSTRUCTIONS = `BLACKBOARD EXECUTION MODE — STANDARD
 Resolve the player's request using the chosen quality and game-system instructions. Before the final reply, check time and actors, continuity of facts/resources, preparation of the next contact, and agreement between narration and saved state, at the selected fidelity. Correct discrepancies within this ordinary generation and confirm successful tool updates. Do not request a separate reviewer, return an audit report, or wait for a private publication stage. Keep the self-check private; return the player-facing answer. Checks and corrections do not advance time again.`;
 
@@ -6,8 +7,12 @@ export const PRIVATE_TURN_INSTRUCTIONS = `BLACKBOARD EXECUTION MODE — PRIVATE 
 The extension runs simulation, then handles each review aspect in sequence: detect and record findings, repair confirmed findings if any, independently verify those repairs before proceeding. A correct aspect needs no repair request. Edits may trigger rechecking of affected earlier aspects. Follow the specific task and allowed tools of the current request. Quality and game-system instructions remain the criteria, not permission to perform another stage. The injected world_blackboard is the frozen baseline; the supplied VERSION PACKET/current_board is the working state. Intermediate revisions and issue reports stay private; only the accepted final state is attached to the published answer. Technical retries, review and repair do not advance world time. Respect the selected fidelity's scope and budget; this execution mode does not turn Low or Mid into Ultra.`;
 
 export function executionInstructions(settings) {
-    return settings.privateReview ? PRIVATE_TURN_INSTRUCTIONS : STANDARD_TURN_INSTRUCTIONS;
+    if (!settings.privateReview) return STANDARD_TURN_INSTRUCTIONS;
+    return normalizePrivateReviewMode(settings.privateReviewMode) === 'light' ? LIGHT_PRIVATE_TURN_INSTRUCTIONS : PRIVATE_TURN_INSTRUCTIONS;
 }
+
+export const LIGHT_PRIVATE_TURN_INSTRUCTIONS = `BLACKBOARD EXECUTION MODE — PRIVATE TURNS (LIGHT)
+The extension first simulates the player's turn, then runs one combined detection pass that records errors and one correction pass that fixes those recorded findings. There is no separate model verification or series of specialized audits in this mode. Follow only the specific assignment and allowed tools of the current request. The supplied VERSION PACKET/current_board is the working state; injected world_blackboard is the frozen baseline. Preserve binding dice, the original player action and unaffected canon. Correct authoritative owner blocks and linked records rather than keeping conflicting live state under a temporary overlay. Intermediate versions and reports remain private; only the accepted final answer and one rollback snapshot are published. Technical retries and corrections do not execute another world interval. Apply the selected quality and game-system criteria; Light does not change their scope. Local validation can block an invalid or unresolved result but is not a semantic guarantee.`;
 
 // Preserve the effective pre-1.6.2 mode once, then the checkbox alone controls it.
 export function migrateExecutionSettings(settings) {

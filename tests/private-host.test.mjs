@@ -196,6 +196,21 @@ test('publication storage failure retains published marker and blocks regenerati
     await h.intercept.resume();assert.equal(h.ctx.chat.length,2);assert.match(h.errors.at(-1).message,/Publication/);
 });
 
+test('final report retention failure after publication preserves checkpoint and cannot duplicate the response on Resume',async()=>{
+    const h=harness({recoveryFactory:memoryRecovery,run:async(_host,result)=>{
+        result.afterSave=async()=>{throw new Error('Private report storage denied');};
+        return result;
+    }});
+    await h.turn();
+    assert.equal(h.ctx.chat.length,2);assert.equal(h.errors[0].published,true);
+    assert.match(h.errors[0].message,/report storage denied/);
+    const record=await h.recovery.load(await h.recovery.key());
+    assert.equal(record.status,'published');
+    await h.intercept.resume();
+    assert.equal(h.ctx.chat.length,2);assert.match(h.errors.at(-1).message,/Publication/);
+    assert.ok(!h.log.includes('rollback'));
+});
+
 for (const unavailable of [{isSecureContext:false,navigator:{},crypto:{}},{indexedDB:undefined}]) test('unavailable browser stops before context building, model request or publication',async()=>{
     const env=browserEnvironment(unavailable);
     const h=harness({recoveryFactory:getContext=>memoryRecovery(getContext,env)});

@@ -169,7 +169,7 @@ export function createPrivateInterceptor({ getContext, run, enabled, makeRequest
                 try { await recovery.write(record); }
                 catch (storageError) { console.error('Blackboard checkpoint write failed', storageError); }
             }
-            onFailure(error, { published, cancelled: controller.signal.aborted, saved: !!record?.checkpoint });
+            onFailure(error, { published, cancelled: controller.signal.aborted, saved: !!record?.checkpoint, scope: record?.key ?? scope });
         } finally {
             result?.release();
             ctx.eventSource.removeListener(events.GENERATION_STOPPED, cancel);

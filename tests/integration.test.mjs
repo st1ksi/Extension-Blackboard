@@ -5,13 +5,14 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as state from '../state.js';
 import { browserEnvironment } from './browser-fixtures.mjs';
+import { reportDatabase } from './report-store-fixtures.mjs';
 
 // Loads the real extension entry point. Only SillyTavern/DOM services are doubles.
-async function host(initialSettings = {}, environment = browserEnvironment()) {
+async function host(initialSettings = {}, environment = browserEnvironment({indexedDB:reportDatabase()})) {
     const handlers = new Map(), tools = new Map(), prompts = new Map(), errors = [];
     const names = ['GENERATE_BEFORE_COMBINE_PROMPTS','MESSAGE_SENT','CHAT_CHANGED','MESSAGE_DELETED','MESSAGE_SWIPED','GENERATION_STARTED','MESSAGE_RECEIVED','TOOL_CALLS_PERFORMED'];
     const ctx = {
-        chat: [], chatMetadata: { variables: {} },
+        chat: [], chatId:'Test campaign', characterId:0, characters:[{avatar:'hero.png'}], chatMetadata: { variables: {} },
         extensionSettings: { blackboard: { simulationFidelity: 'ultra', functionTool: true, autoInjectPrompt: true, historyRollback: true, ...initialSettings } },
         eventTypes: Object.fromEntries(names.map(n => [n, n])),
         eventSource: { on: (event, f) => { const list = handlers.get(event) || []; list.push(f); handlers.set(event, list); } },
@@ -21,7 +22,7 @@ async function host(initialSettings = {}, environment = browserEnvironment()) {
     };
     ctx.variables = { local: { get: k => ctx.chatMetadata.variables?.[k], set: (k, v) => { ctx.chatMetadata.variables ??= {}; ctx.chatMetadata.variables[k] = v; } } };
     let initialize, privateRunner, privateOptions;
-    const notices = [];
+    const notices = [], exported = [], blobs = new Map();
     const jq = new Proxy({}, { get: (_, key) => key === 'length' ? 1 : key === 'val' ? (...args) => args.length ? jq : '' : () => jq });
     const elements = new Map();
     function $(selector) {
@@ -47,9 +48,11 @@ async function host(initialSettings = {}, environment = browserEnvironment()) {
         return elements.get(selector);
     }
     const sandbox = vm.createContext({ ...environment, SillyTavern: { getContext: () => ctx },
-        jQuery: f => { initialize = f; }, $, document: { getElementById: () => null },
+        jQuery: f => { initialize = f; }, $, document: { getElementById: () => null,
+            createElement: () => ({click() { exported.push(blobs.get(this.href)); }}),
+        }, Blob, URL:{createObjectURL:blob=>{const key='blob:test-'+blobs.size;blobs.set(key,blob);return key;},revokeObjectURL:key=>blobs.delete(key)},
         console: { log() {}, debug() {}, warn() {}, error: (...args) => errors.push(args) },
-        toastr: { info() {}, success() {}, warning: message => notices.push(message), error() {}, clear() {} }, structuredClone, setTimeout, clearTimeout,
+        toastr: { info:message=>notices.push(message), success() {}, warning: message => notices.push(message), error:message=>notices.push(message), clear() {} }, structuredClone, setTimeout, clearTimeout,
     });
     const stubClass = { fromProps: props => props };
     const stubs = {
@@ -57,14 +60,21 @@ async function host(initialSettings = {}, environment = browserEnvironment()) {
         renderExtensionTemplateAsync: async () => '<div></div>', POPUP_TYPE: {}, POPUP_RESULT: {}, Popup: class {},
         SlashCommand: stubClass, ARGUMENT_TYPE: { STRING: 'string' }, SlashCommandArgument: stubClass,
         SlashCommandNamedArgument: stubClass, commonEnumProviders: {}, SlashCommandParser: { commands: {}, addCommandObject() {} },
+        getCurrentUserHandle: () => ctx.account ?? 'tester',
     };
     const source = await readFile(new URL('../index.js', import.meta.url), 'utf8');
-    const entry = new vm.SourceTextModule(source, { context: sandbox });
+    const dynamicImport = async specifier => {
+        const mod = await linker(specifier);
+        if (mod.status === 'unlinked') await mod.link(linker);
+        if (mod.status === 'linked') await mod.evaluate();
+        return mod;
+    };
+    const entry = new vm.SourceTextModule(source, { context: sandbox, importModuleDynamically: dynamicImport });
     const cache = new Map();
     async function linker(specifier) {
         if (cache.has(specifier)) return cache.get(specifier);
-        if (['./board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-runner.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js'].includes(specifier)) {
-            const mod = new vm.SourceTextModule(await readFile(new URL('../' + specifier.slice(2), import.meta.url), 'utf8'), { context: sandbox });
+        if (['./board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js'].includes(specifier)) {
+            const mod = new vm.SourceTextModule(await readFile(new URL('../' + specifier.slice(2), import.meta.url), 'utf8'), { context: sandbox, importModuleDynamically: dynamicImport });
             cache.set(specifier, mod); await mod.link(linker); return mod;
         }
         const obj = specifier === './state.js' ? state : stubs;
@@ -75,7 +85,10 @@ async function host(initialSettings = {}, environment = browserEnvironment()) {
     await entry.evaluate();
     await initialize();
     assert.deepEqual(errors, [], 'The real entry point must initialize without swallowed errors.');
-    return { ctx, tools, prompts, notices, failPrivate: (...args) => privateOptions.onFailure(...args), ui: $, imageCommands: stubs.SlashCommandParser.commands, getReport: () => cache.get('./private-runner.js').namespace.getPrivateReport(), runPrivate: (...args) => privateRunner(...args), api: entry.namespace, emit: async (name, ...args) => { for (const f of handlers.get(name) || []) await f(...args); } };
+    return { ctx, tools, prompts, notices, exported,
+        clearReport:()=>cache.get('./private-runner.js').namespace.clearPrivateReport(),
+        exportReport:()=>cache.get('./private-runner.js').namespace.downloadPrivateReport(),
+        failPrivate: (...args) => privateOptions.onFailure(...args), ui: $, imageCommands: stubs.SlashCommandParser.commands, getReport: () => cache.get('./private-runner.js').namespace.getPrivateReport(), runPrivate: (...args) => privateRunner(...args), api: entry.namespace, emit: async (name, ...args) => { for (const f of handlers.get(name) || []) await f(...args); } };
 }
 
 for (const privateReview of [false, true]) test(`background checkbox gates real prompt and tool independently of private mode (${privateReview})`, async () => {
@@ -600,4 +613,183 @@ for (const privateReview of [false,true]) test(`master switch disables simulatio
     assert.match(h.prompts.get('blackboard_system_prompt'),/UpdateBlackboard/);
     assert.match(h.prompts.get('blackboard_bg_prompt'),privateReview?/BACKGROUND EXECUTION — PRIVATE/:/BACKGROUND EXECUTION — STANDARD/);
     assert.equal(h.api.getBlackboard(),original);
+});
+
+for (const savedMode of [undefined, 'unknown', 'light', 'heavy']) test(`private review mode normalizes existing settings (${savedMode})`, async () => {
+    const h = await host({ privateReview:true, executionModeVersion:1, privateReviewMode:savedMode });
+    const expected = savedMode === 'light' ? 'light' : 'heavy';
+    assert.equal(h.ctx.extensionSettings.blackboard.privateReviewMode, expected);
+    assert.equal(h.ui('#blackboard_private_mode').val(), expected);
+    assert.equal(h.ui('#blackboard_private_mode').prop('disabled'), false);
+});
+
+test('review mode selector preserves light preference across standard/master off and regenerates mode instructions', async () => {
+    const h = await host({ privateReview:true, executionModeVersion:1 });
+    h.api.setBlackboard('[SCENE #room]\nRetained canon.');
+    const board = h.api.getBlackboard();
+    h.ui('#blackboard_private_mode').val('light').trigger('change');
+    assert.equal(h.ctx.extensionSettings.blackboard.privateReviewMode, 'light');
+    assert.match(h.ui('#blackboard_private_mode_desc').text(), /one|single/i);
+    assert.match(h.prompts.get('blackboard_system_prompt'), /light|one combined/i);
+    h.ui('#blackboard_private_review').prop('checked',false).trigger('change');
+    assert.equal(h.ui('#blackboard_private_mode').prop('disabled'), true);
+    assert.equal(h.ctx.extensionSettings.blackboard.privateReviewMode, 'light');
+    assert.match(h.prompts.get('blackboard_system_prompt'), /EXECUTION MODE — STANDARD/);
+    h.ui('#blackboard_private_review').prop('checked',true).trigger('change');
+    assert.equal(h.ui('#blackboard_private_mode').prop('disabled'), false);
+    assert.equal(h.ui('#blackboard_private_mode').val(), 'light');
+    h.ui('#blackboard_function_tool').prop('checked',false).trigger('change');
+    assert.equal(h.ui('#blackboard_private_mode').prop('disabled'), true);
+    assert.equal(h.ctx.extensionSettings.blackboard.privateReviewMode, 'light');
+    assert.equal(h.api.getBlackboard(), board);
+});
+
+test('review mode selector is disabled for unsupported browsers without erasing a saved light preference', async () => {
+    const h = await host({ privateReview:true, privateReviewMode:'light', executionModeVersion:1 },
+        browserEnvironment({isSecureContext:false,navigator:{},crypto:{}}));
+    assert.equal(h.ui('#blackboard_private_mode').prop('disabled'), true);
+    assert.equal(h.ui('#blackboard_private_mode').val(), 'light');
+    assert.equal(h.ctx.extensionSettings.blackboard.privateReviewMode, 'light');
+});
+
+test('selected light mode reaches registered runner and commits one final snapshot with its correction report', async () => {
+    const h = await host({ privateReview:true, privateReviewMode:'light', executionModeVersion:1, autoSceneBackground:false });
+    h.api.setBlackboard(privateBoard); await user(h, 'Wait.');
+    const sequence = [];
+    const result = await h.runPrivate({type:'normal',api:'openai',canTools:true,messages:[],
+        invoke:()=>assert.fail('No random or external effects in review/correction'),request:async messages=>{
+            const p = privatePayload(messages); sequence.push(p.phase);
+            if(p.phase==='simulate')return {text:'Original.'};
+            if(p.phase==='review'){assert.equal(p.audit.stage,'light');return pass(p);}
+            return {text:JSON.stringify({revision:p.head_revision,candidate_id:p.candidate_id,candidate:'You wait.',issue_resolutions:[]})};
+        }});
+    assert.deepEqual(sequence, ['simulate','review','repair']);
+    result.commit(); h.ctx.chat.push({is_user:false,mes:'You wait.'});
+    await h.emit('MESSAGE_RECEIVED',h.ctx.chat.length-1); await result.afterSave();
+    assert.equal(h.getReport().reviewMode ?? h.getReport().stats?.reviewMode, 'light');
+    assert.equal(h.getReport().reviews, 1);
+    assert.equal(h.getReport().repairs, 1);
+    assert.equal(h.ctx.chat.at(-1).extra.blackboard_snapshot, h.api.getBlackboard());
+    assert.ok(!JSON.stringify(h.ctx.chat.at(-1).extra).includes('issue_resolutions'), 'Audit diagnostics remain private');
+});
+
+async function completeReportTurn(h, text = 'You wait.', invoke = () => assert.fail('No external tool expected')) {
+    h.api.setBlackboard(privateBoard); await user(h, 'Wait.');
+    const result = await h.runPrivate({type:'normal',api:'openai',canTools:true,messages:[],invoke,request:async messages=>{
+        const p = privatePayload(messages);
+        if (p.phase === 'review') return pass(p);
+        if (p.phase === 'repair') return {text:JSON.stringify({revision:p.head_revision,candidate_id:p.candidate_id,candidate:text,issue_resolutions:[]})};
+        return {text};
+    }});
+    result.commit(); h.ctx.chat.push({is_user:false,mes:text});
+    await h.emit('MESSAGE_RECEIVED',h.ctx.chat.length-1); await result.afterSave(); result.release();
+}
+
+test('completed Light report survives CHAT_CHANGED clearing memory and exports without entering chat storage', async () => {
+    const h = await host({privateReview:true,privateReviewMode:'light',executionModeVersion:1,autoSceneBackground:false});
+    await completeReportTurn(h);
+    assert.equal(h.getReport().status,'committed');
+    await h.emit('CHAT_CHANGED');
+    assert.equal(h.getReport(),null,'Chat changes discard only the tab cache, not the persistent archive.');
+    await h.exportReport();
+    assert.equal(h.exported.length,1);
+    const exported = JSON.parse(await h.exported[0].text());
+    assert.equal(exported.status,'committed');
+    assert.equal(exported.reviewMode,'light');
+    assert.equal(exported.reviews,1); assert.equal(exported.repairs,1);
+    assert.ok(exported.auditLog.length);
+    assert.doesNotMatch(JSON.stringify(h.ctx.chatMetadata),/auditLog|candidateVersions|issueLedger|stageFindings/);
+    assert.doesNotMatch(JSON.stringify(h.ctx.chat),/auditLog|candidateVersions|issueLedger|stageFindings/);
+});
+
+test('completed report can be exported after a full extension reload using the same browser database', async () => {
+    const database = reportDatabase();
+    const environment = () => browserEnvironment({indexedDB:database});
+    const first = await host({autoSceneBackground:false},environment());
+    await completeReportTurn(first,'Reload persistence sentinel.');
+    const reloaded = await host({},environment());
+    assert.equal(reloaded.getReport(),null);
+    await reloaded.exportReport();
+    assert.equal(reloaded.exported.length,1);
+    assert.equal(JSON.parse(await reloaded.exported[0].text()).candidate,'Reload persistence sentinel.');
+});
+
+test('report export is isolated by account, character and chat, including chats with no private history', async () => {
+    const h = await host({autoSceneBackground:false});
+    await completeReportTurn(h,'Scoped private report sentinel.');
+    const original = {chatId:h.ctx.chatId,avatar:h.ctx.characters[0].avatar,account:h.ctx.account,chat:h.ctx.chat,metadata:h.ctx.chatMetadata};
+    for (const change of [
+        () => { h.ctx.chatId='Unrelated campaign'; },
+        () => { h.ctx.characters[0].avatar='different-character.png'; },
+        () => { h.ctx.account='other-account'; },
+    ]) {
+        Object.assign(h.ctx,{chatId:original.chatId,account:original.account});
+        h.ctx.characters[0].avatar=original.avatar;
+        h.ctx.chat=[];h.ctx.chatMetadata={variables:{}};
+        change(); await h.emit('CHAT_CHANGED'); await h.exportReport();
+        assert.equal(h.exported.length,0,'A report from another scope must never be downloaded.');
+    }
+    Object.assign(h.ctx,{chatId:original.chatId,account:original.account,chat:original.chat,chatMetadata:original.metadata});
+    h.ctx.characters[0].avatar=original.avatar;
+    await h.emit('CHAT_CHANGED'); await h.exportReport();
+    assert.equal(h.exported.length,1);
+    assert.equal(JSON.parse(await h.exported[0].text()).candidate,'Scoped private report sentinel.');
+});
+
+test('a chat with only public summary metadata does not fabricate a lost detailed report', async () => {
+    const h = await host();
+    h.ctx.chat.push({is_user:false,mes:'Historical answer.',extra:{blackboard_review:{reviewMode:'light',reviews:1,repairs:1}}});
+    await h.exportReport();
+    assert.equal(h.exported.length,1);
+    const summary=JSON.parse(await h.exported[0].text());
+    assert.equal(summary.report_kind,'saved_summary'); assert.equal(summary.details_available,false);
+    assert.equal(summary.auditLog,undefined); assert.equal(summary.issueLedger,undefined);
+    assert.match(h.notices.at(-1),/summary|detail|unavailable|not/i);
+});
+
+test('chat switching while loading an archived report cancels download instead of exporting the previous chat',async()=>{
+    const database=reportDatabase(),h=await host({autoSceneBackground:false},browserEnvironment({indexedDB:database}));
+    await completeReportTurn(h);h.clearReport();
+    database.beforeGet=()=>{
+        database.beforeGet=null;
+        h.ctx.chatId='Chat switched while archive is loading';h.ctx.chat=[];h.ctx.chatMetadata={variables:{}};
+    };
+    await h.exportReport();
+    assert.equal(h.exported.length,0);
+    assert.match(h.notices.at(-1),/chat changed|intended chat/i);
+});
+
+test('site storage denial before publication retains complete audit in memory and never commits the draft',async()=>{
+    const database=reportDatabase(),h=await host({autoSceneBackground:false},browserEnvironment({indexedDB:database}));
+    h.api.setBlackboard(privateBoard);await user(h,'Wait.');
+    const baseline=h.api.getBlackboard();
+    await assert.rejects(h.runPrivate({type:'normal',api:'openai',canTools:true,messages:[],invoke:()=>assert.fail('No tools'),request:async messages=>{
+        const p=privatePayload(messages);
+        if(p.phase==='review'){
+            if(p.audit.stage==='narration')database.error=new Error('Site storage denied during report retention');
+            return pass(p);
+        }
+        return {text:'You wait.'};
+    }}),/Site storage denied/);
+    assert.equal(h.ctx.chat.length,1);assert.equal(h.api.getBlackboard(),baseline);
+    assert.equal(h.getReport().status,'failed');assert.equal(h.getReport().auditLog.length,4);
+    assert.equal(h.getReport().candidate,'You wait.');
+    await h.exportReport();
+    assert.equal(h.exported.length,1,'The surviving in-tab diagnostics remain exportable while browser storage is blocked.');
+    assert.equal(JSON.parse(await h.exported[0].text()).auditLog.length,4);
+});
+
+test('an unscoped setup failure cannot relabel or overwrite the preceding completed private report',async()=>{
+    const h=await host({autoSceneBackground:false});
+    await completeReportTurn(h,'Previous committed report.');
+    const original=JSON.stringify(h.getReport());
+    h.failPrivate(new Error('A new request failed before acquiring a private turn scope'));
+    assert.equal(h.getReport().status,'committed');
+    assert.equal(JSON.stringify(h.getReport()),original);
+    await h.exportReport();
+    assert.equal(h.exported.length,1);
+    assert.equal(await h.exported[0].text(),JSON.stringify(JSON.parse(original),null,2));
+    h.clearReport();await h.exportReport();
+    assert.equal(h.exported.length,2);
+    assert.equal(await h.exported[1].text(),JSON.stringify(JSON.parse(original),null,2));
 });

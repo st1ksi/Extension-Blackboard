@@ -57,11 +57,12 @@ export function installSettingsDashboard({ html, presets, document = globalThis.
         panel.querySelector('[data-bb-custom-budget]').hidden = selected !== 'custom';
         const enabled = source('blackboard_function_tool').checked;
         const privateTurns = source('blackboard_private_review').checked;
+        const reviewMode = source('blackboard_private_mode')?.value === 'light' ? 'Light' : 'Heavy';
         const injection = source('blackboard_auto_inject_prompt').checked;
         const mode = panel.querySelector('[data-bb-mode]');
         mode.textContent = !enabled ? 'Simulation off · preferences retained'
             : !injection ? 'Auto-injection off · instructions are not added'
-            : privateTurns ? 'Simulation on · Private Turns selected' : 'Simulation on · standard generation';
+            : privateTurns ? `Simulation on · Private Turns (${reviewMode})` : 'Simulation on · standard generation';
         mode.dataset.active = String(enabled && injection);
         const warning = panel.querySelector('[data-bb-private-warning]');
         const unsupported = enabled && privateTurns && source('blackboard_private_format').disabled;

@@ -1,4 +1,5 @@
 import { parseBlocks } from './state.js';
+import { LIGHT_REVIEW_STAGE, normalizeLightAffected } from './private-modes.js';
 
 export const REVIEW_STAGES = Object.freeze([
     { id: 'time', label: 'Time and active actors', task: `Reconstruct the resolved interval and the sequence of actions before evaluating its ending.
@@ -19,7 +20,7 @@ Compare voluntary actions with what the player authorized. Preserve genuine fail
       targets: [['outcome', 'Reconcile the candidate outcome and numerical statements with board and dice.'], ['agency_knowledge', 'Check authorized actions, decision boundaries and every disclosure of hidden information.'], ['hud_visuals', 'Reconcile HUD and any queued image request with current player-known reality.']] },
 ]);
 
-export const stageLabel = id => REVIEW_STAGES.find(s => s.id === id)?.label || id || '';
+export const stageLabel = id => (id === 'light' ? LIGHT_REVIEW_STAGE : REVIEW_STAGES.find(s => s.id === id))?.label || id || '';
 const blocks = text => new Map(parseBlocks(text).blocks.map(b => [b.blockKey, b.content]));
 const normalized = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 
@@ -58,7 +59,7 @@ function ownerBundle(id, before, after) {
 }
 
 export function makeAudit(draft, stageId, candidateId) {
-    const stage = REVIEW_STAGES.find(s => s.id === stageId);
+    const stage = stageId === 'light' ? LIGHT_REVIEW_STAGE : REVIEW_STAGES.find(s => s.id === stageId);
     if (!stage) throw new Error('Unknown review stage');
     const before = blocks(draft.baseline), after = blocks(draft.head);
     const snapshots = draft.versions.map(v => ({ revision: v.revision, blocks: blocks(v.text) }));
@@ -101,7 +102,7 @@ export function makeAudit(draft, stageId, candidateId) {
         return { block_id: id, base_revision: snapshots[i].revision, revision: v.revision, removed_line_count: removed.length, sample: removed.slice(0, 8) };
     }).filter(item => item.removed_line_count)) : undefined;
     return { stage: stageId, label: stage.label, revision: draft.revision, candidate_id: candidateId,
-        targets, changed_blocks: changed, references, ...(bundles.length ? { owner_bundles: bundles } : {}), ...(removedLines ? { removed_line_cues: removedLines } : {}) };
+        targets, changed_blocks: changed, references, ...(stageId === 'light' ? { known_blocks: ids } : {}), ...(bundles.length ? { owner_bundles: bundles } : {}), ...(removedLines ? { removed_line_cues: removedLines } : {}) };
 }
 
 const COMMON_REVIEW = `You are an independent transition auditor evaluating a candidate produced by the simulation component. Your sole job in this request is a grounded verdict on your assigned targets. Authorship, confident narration and earlier approvals are not evidence of correctness. Do not defend the candidate or manufacture errors to demonstrate diligence.
@@ -114,7 +115,7 @@ issue_ledger contains persistent observations, not unquestionable truths. For EA
 Evidence source is current or baseline (block_id required), revision:N (block_id required), candidate, rolls, or context (no block_id). Cite short supplied excerpts; JSON layout whitespace outside strings is ignored. Cover each target exactly once. Use blocked only if correction truly requires a new random outcome, an unresolved player choice or unavailable indispensable information; never fabricate those to make a pass. A format failure is not permission to edit the world.`;
 
 export function reviewProtocol(stageId, purpose = 'detect') {
-    const stage = REVIEW_STAGES.find(s => s.id === stageId);
+    const stage = stageId === 'light' ? LIGHT_REVIEW_STAGE : REVIEW_STAGES.find(s => s.id === stageId);
     const assignment = purpose === 'verify'
         ? `VERIFY RECORDED REPAIRS — You are not the repair author. Start with EACH issue_ledger entry and compare its original allegation, repair_before state/candidate, repair_changes and current state/candidate. Decide separately whether the defect persists, was actually fixed, or was a false allegation. A newer revision or the repairer's confidence is not evidence. Check every linked copy and any consequences of these edits within your assigned aspect; use all audit targets as a regression check. Record newly exposed defects too. Do not edit anything. Another dedicated repair request will handle confirmed open findings.`
         : `DETECT AND RECORD — Find concrete omissions and contradictions in this aspect of the simulated transition. Record them in issues with evidence and a minimal supported repair direction. Your task is diagnosis, not rewriting the board or producing a replacement answer. A separate repair request receives your confirmed findings. If there are none, return pass with the required grounded checks; do not invent work. Existing pending observations must still be explicitly resolved or confirmed.`;
@@ -207,16 +208,30 @@ export function validateAudit(review, audit, draft, candidate, context, pendingI
         catch (e) { throw new Error(`${e.message} for ${check.target}`); }
     }
     if (seen.size !== required.size) throw new Error(`Audit omitted targets: ${[...required].filter(id => !seen.has(id)).join(', ')}`);
-    for (const issue of review.issues) if (!required.has(issue.target) || !normalized(issue.problem) || !normalized(issue.repair)) throw new Error('Issue needs a target, specific problem and repair');
+    for (const issue of review.issues) {
+        if (!required.has(issue.target) || !normalized(issue.problem) || !normalized(issue.repair)) throw new Error('Issue needs a target, specific problem and repair');
+        if (audit.stage === 'light') {
+            const affected = normalizeLightAffected(issue.affected, audit.known_blocks);
+            const current = blocks(draft.head);
+            const evidence = review.checks.find(check => check.target === issue.target).evidence;
+            validateEvidence(evidence, draft, candidate, context, affected.filter(id => id !== 'candidate' && current.has(id)).map(block_id => ({ source: 'current', block_id })));
+            if (affected.includes('candidate') && !evidence.some(item => item.source === 'candidate')) throw new Error('Light issue check must cite its affected candidate');
+            const prior = pendingIssues.find(item => item.id === issue.id || (item.target === issue.target && normalized(item.problem) === normalized(issue.problem)));
+            if (prior?.affected?.length && [...prior.affected].sort().join('|') !== [...affected].sort().join('|')) throw new Error('Cannot relabel affected records of a recorded Light issue');
+        }
+    }
     const resolutions = review.issue_resolutions ?? [];
     if (!Array.isArray(resolutions)) throw new Error('Malformed issue_resolutions');
     const pending = new Map(pendingIssues.map(i => [i.id, i])), resolvedIds = new Set();
     for (const r of resolutions) {
         const issue = pending.get(r.id);
         if (!issue || resolvedIds.has(r.id) || !['open', 'resolved', 'rejected'].includes(r.status) || !normalized(r.reason)) throw new Error('Unknown/duplicate issue resolution, status or empty reason');
-        const ownBlock = blocks(draft.head).get(issue.block_id);
-        const required = ownBlock?.trim() ? [{ source: 'current', block_id: issue.block_id }] : [];
+        const current = blocks(draft.head);
+        const ownBlock = current.get(issue.block_id);
+        const required = audit.stage === 'light' ? (issue.affected ?? []).filter(id => id !== 'candidate' && current.has(id)).map(block_id => ({ source: 'current', block_id }))
+            : ownBlock?.trim() ? [{ source: 'current', block_id: issue.block_id }] : [];
         validateEvidence(r.evidence, draft, candidate, context, required);
+        if (audit.stage === 'light' && issue.affected?.includes('candidate') && !r.evidence.some(item => item.source === 'candidate')) throw new Error(`Resolution ${r.id} must cite the affected candidate`);
         if (r.status === 'resolved' && issue.observed_revision === draft.revision && issue.observed_candidate === audit.candidate_id) throw new Error(`Issue ${r.id} cannot be fixed without a changed board/candidate; use rejected with evidence if the allegation is mistaken`);
         if (r.status === 'resolved' && !r.evidence.some(e => e.source === 'current' || e.source === 'candidate')) throw new Error(`Resolution ${r.id} must cite the corrected current state or candidate`);
         resolvedIds.add(r.id);

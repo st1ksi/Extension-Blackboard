@@ -25,8 +25,8 @@ dependency build is needed for the Blackboard itself.
 - **Time and continuity:** a world clock, scheduled processes, resource tracking,
   and unchanged-block diagnostics.
 - **Quality presets:** Low, Mid, High and Ultra, plus custom instructions and budgets.
-- **Optional private reviews:** focused detection, targeted repair when necessary,
-  and verification before publication.
+- **Optional private reviews:** Heavy mode uses focused detection, targeted repair
+  and verification; Light mode combines detection into one pass, then corrects findings.
 - **Recovery:** checkpointed private work, confirmed dice and pending requests can
   survive provider errors and page reloads.
 - **History rollback:** saved board snapshots and block ages follow deletion,
@@ -102,14 +102,14 @@ hooks removed; a clean SillyTavern needs only this extension.
 2. Open **Extensions → Simulation Blackboard → Open control panel**.
 3. Select **Universal** for campaign-owned rules or **D&D 5e** for the D&D supplement.
 4. Choose fidelity. **Mid** is the fresh-install default. Leave **Private Turns**
-   off for ordinary generation or enable them for additional review calls.
+   off for ordinary generation or enable them and select **Heavy** or **Light** review.
 5. Disable **Automatic scene backgrounds** if you do not want images, or configure
    Image Generation before leaving it on.
 6. Supply your character/persona and scenario, then send an action. The model
    initializes an empty board; open **Objective Blackboard** in the wand menu to inspect it.
 
 Fresh defaults: simulation, auto-injection, rollback and backgrounds enabled;
-Mid fidelity; D&D profile; Private Turns disabled; diff history. Existing
+Mid fidelity; D&D profile; Private Turns disabled; Heavy review mode; diff history. Existing
 installations retain compatible saved choices through migration.
 
 Example: establish a warehouse with two exits, a sealed crate and a guard due to
@@ -153,18 +153,35 @@ block contents changed, not elapsed world time; static facts need no artificial 
 **Off:** ordinary SillyTavern generation and tool calls, with instructions to
 self-check within that generation. No separate review or private recovery checkpoint.
 
-**On:** simulation stages a working board and candidate answer, followed by four
-aspects, each with detection before any focused repair and verification:
+**On:** simulation stages a working board and candidate answer. The independent
+**Review mode** selector chooses how that draft is checked:
+
+- **Heavy (default):** specialized detection for each aspect, targeted repair when
+  necessary, then model verification. Repairs can trigger rechecks of earlier
+  aspects. A clean turn requires at least four audit requests in addition to
+  simulation; repairs and retries add time, tokens and API usage.
+- **Light:** one combined detection pass records issues across all four aspects,
+  followed by one correction pass addressing those records. It has no additional
+  model verification pass or repeated semantic audits. Local board and workflow
+  validation still apply; unresolved findings block publication. This reduces
+  review stages, but can miss errors that separate verification would catch.
+
+Light findings identify their affected records. Corrections must cite those
+records and change the affected state to resolve a defect; an unrelated edit
+cannot close it. A mistaken allegation can instead be rejected with evidence.
+
+Both modes cover:
 
 1. **Time and actors:** elapsed interval, ongoing plans, deadlines and expiring effects.
 2. **Facts and resources:** continuity, transfers, quantities, injuries and duplicated claims.
 3. **Reachable space:** preparation for actual next contacts and alternative routes.
 4. **Final answer:** board/dice agreement, player agency and information disclosure.
 
-Repairs can trigger rechecks of earlier aspects. The **same configured model**
-performs these roles. A clean private turn requires at least four audit requests
-in addition to simulation; repairs and retries add time, tokens and API usage.
-Private execution does not stream its answer.
+The **same configured model** performs these roles. A pass can need tool-call
+continuations or request retries, so Light does not promise exactly two HTTP
+requests. Private execution does not stream its answer. The review mode is
+independent of fidelity and remains selected while Private Turns are disabled.
+Existing installations and older saved checkpoints default to Heavy.
 
 **Diff** supplies baseline plus versioned before/after history; **Full** supplies
 complete historical revisions. Audits receive the full current board in either
@@ -178,16 +195,28 @@ errors do not receive the same automatic retries.
 
 For a paused turn, export diagnostics if needed, wait for the provider and choose
 **Resume**. Restore the original chat/branch and protected settings if they changed.
+The checkpoint retains its review mode; changing the selector affects new turns
+and does not convert work already saved under a different mode.
 Do not resend the player action while keeping that draft; use **Discard draft**
 to abandon it intentionally. Resume uses the frozen context and remaining work,
 without deliberately repeating confirmed dice or completed tools. Uncertain tool
 outcomes, invalid reviews, missing player decisions or exhausted budgets may need
 inspection rather than repeated Resume.
 
-Private checkpoints live in **this browser's IndexedDB for this site address**.
-They survive reload while storage is retained but do not automatically transfer
-between devices, browsers or HTTP/HTTPS addresses. The last private-report export
-is tab-local: download it before starting another turn.
+Private checkpoints and diagnostic reports live in **this browser's IndexedDB for
+this site address**, outside chat messages, prompts and vector memory. They survive
+reload while storage is retained but do not automatically transfer between devices,
+browsers or HTTP/HTTPS addresses. Clearing site storage deletes them.
+
+**Export last private turn** loads the latest report for the current account,
+character and saved chat after reload or chat switching. The archive also retains
+the previous completion if a newer attempt fails; it does not store a full campaign
+history. Export each turn separately to keep a test series. Reports include audits,
+candidate revisions, issue history, dice and the final background result. A storage
+failure keeps the recovery checkpoint instead of silently discarding diagnostics.
+For older turns whose full report was never saved, export provides a clearly marked
+summary using surviving message statistics and the final board, with no invented
+audits or intermediate versions.
 
 ## Inspector and settings
 
@@ -292,13 +321,13 @@ private revisions and findings are not added as chat or vector-memory entries.
 | Wrong character/scenario | Conflicting card, persona, greeting, lorebook or other instructions. |
 
 For reports, include versions, connection/model, fidelity, game profile, Private
-Turns state, reproduction steps and error text. Review private exports for hidden
+Turns state and review mode, reproduction steps and error text. Review private exports for hidden
 campaign information before sharing. History is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Development
 
-Run `npm test` from this directory with Node.js. The current suite has 273 passing
-tests and needs no third-party test packages. It checks software behavior with
+Run `npm test` from this directory with Node.js. The suite needs no third-party
+test packages. It checks software behavior with
 mocked host/model services, not model simulation quality.
 
 After editing `prompts/systems/`, run `npm run sync-prompt`, then the tests.

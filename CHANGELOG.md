@@ -4,14 +4,38 @@ This file records development history, not a claim that every version was publis
 as a GitHub Release. Entries summarize previous notes. Dates are omitted where no
 release date was established. Current behavior is described in [README.md](README.md).
 
-## Unreleased
+## 1.13.1 — 2026-10-15 — Light reviews and durable private reports
 
-- Added the full AGPL-3.0 license and `.gitignore` for local development artifacts.
-- Replaced accumulated README notes with public installation, usage, feature and
-  requirements documentation, and this separate changelog.
+- Public release of the Heavy/Light review selector and durable report export,
+  including the changes developed in 1.13.0 below.
+- Save the latest private report per account, character and chat in separate
+  browser storage, including audit findings, revisions and final background status.
+- Keep reports available after page reloads and chat switching; retain the last
+  completion when a later attempt fails. Private details stay outside chat and prompts.
+- Save the full report before publication and checkpoint cleanup. Storage failures
+  preserve recovery data rather than silently losing the audit.
+- Export explicitly marked summaries when only older public message statistics
+  survive; missing audits and intermediate versions are never reconstructed.
+
+## 1.13.0 — Heavy and Light Private Turns
+
+- Added an independent review-mode selector in native settings and Control Panel.
+  Heavy preserves the existing specialized audits, targeted repairs and verification.
+- Light combines all audit aspects into one detection pass and one correction pass
+  using recorded findings, without a subsequent model verification pass. Local
+  validation and publication safeguards remain; tool continuations can add requests.
+- Light findings retain affected record IDs and require corresponding evidence;
+  unrelated board or prose edits cannot resolve an unchanged state defect.
+- Private Turns enablement and diff/full revision history remain separate settings.
+  Mode selection is retained when private execution is disabled.
+- Recovery checkpoints and exports retain the selected review mode; old settings
+  and checkpoints default to Heavy for compatibility.
+- Developed and tested as a separate local copy; first published with 1.13.1.
 
 ## 1.12.1 — Minimal scrollbars
 
+- First public release on 2026-10-13, including the full AGPL-3.0 license,
+  `.gitignore`, installation and usage documentation, and this separate changelog.
 - Thin muted thumbs and transparent tracks throughout custom panels.
 - Hidden Chromium/WebKit arrow buttons; Firefox thin-scrollbar styling.
 

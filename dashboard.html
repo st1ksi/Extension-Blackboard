@@ -29,13 +29,15 @@
             <section class="bb-dash-section">
                 <label class="bb-dash-toggle"><span><strong>Private Turns</strong><small>Separate checks and repairs before each reply.<br>More requests and a longer wait.</small></span><input type="checkbox" data-bb-control="blackboard_private_review" role="switch"></label>
                 <p class="bb-dash-hint" data-bb-private-warning hidden></p>
+                <label class="bb-dash-select-row"><span>Review mode</span><select data-bb-control="blackboard_private_mode"><option value="heavy">Heavy — specialized audits</option><option value="light">Light — detect, then correct</option></select></label>
+                <p class="bb-dash-hint" data-bb-text="blackboard_private_mode_desc"></p>
                 <details class="bb-dash-details">
                     <summary>Private Turn options</summary>
                     <div class="bb-dash-details-body">
                         <p class="bb-dash-hint" data-bb-text="blackboard_execution_status"></p>
                         <label>Working version history<select data-bb-control="blackboard_private_format"><option value="diff">Changes between revisions (diff)</option><option value="full">Full snapshots (full)</option></select></label>
                         <p class="bb-dash-hint">Every audit also receives the full current board. Full history uses more context.</p>
-                        <p class="bb-dash-hint">Four audit areas: time &amp; actors, facts &amp; resources, reachable space, and the final answer. Requires a single-character Chat Completion chat with tools and prompt auto-injection. No streaming during the private cycle.</p>
+                        <p class="bb-dash-hint">Both modes cover time &amp; actors, facts &amp; resources, reachable space, and the final answer. Heavy checks them separately; Light checks them together, then corrects recorded issues. Requires a single-character Chat Completion chat with tools and prompt auto-injection. No streaming during the private cycle.</p>
                         <p class="bb-dash-hint" data-bb-text="blackboard_private_capabilities"></p>
                     </div>
                 </details>

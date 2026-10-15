@@ -39,14 +39,20 @@
                 <label class="checkbox_label"><input id="blackboard_private_review" type="checkbox"><span>Private Turns — checks before publication</span></label>
                 <small id="blackboard_execution_status" class="text-muted block"></small>
                 <small id="blackboard_private_capabilities" class="text-muted block marginTop5" role="status" aria-live="polite"></small>
-                <small class="text-muted block">Independent of fidelity and game system. When enabled: four private checks (time &amp; actors, facts &amp; resources, reachable space, final answer). Issues persist until resolved or refuted; repairs restart checks. At least four audit requests; requires a single-character Chat Completion chat with tools and Blackboard auto-injection. No streaming during the private cycle. When disabled: normal generation with an internal self-check.</small>
+                <small class="text-muted block">Independent of fidelity and game system. Choose Heavy for specialized audits or Light for combined detection and correction. Requires a single-character Chat Completion chat with tools and Blackboard auto-injection. No streaming during the private cycle. When disabled: normal generation with an internal self-check.</small>
+                <label for="blackboard_private_mode">Review mode:</label>
+                <select id="blackboard_private_mode" class="text_pole">
+                    <option value="heavy">Heavy — specialized audits and verification</option>
+                    <option value="light">Light — combined detection, then correction</option>
+                </select>
+                <small id="blackboard_private_mode_desc" class="text-muted block marginTop5"></small>
                 <label for="blackboard_private_format">Working version history (audits also receive the full current board):</label>
                 <select id="blackboard_private_format" class="text_pole">
                     <option value="diff">Versioned changes (baseline + before/after)</option>
                     <option value="full">Full snapshots of every revision</option>
                 </select>
                 <div id="blackboard_private_export" class="menu_button">Export last private turn</div>
-                <small class="text-muted">Local JSON includes hidden state, every audit, candidate revision and the issue ledger with closure reasons. Report stays in this tab; recovery checkpoints also persist locally. Neither enters chat or vector memory. Export before starting another turn.</small>
+                <small class="text-muted">Local JSON includes hidden state, every audit, candidate revision and the issue ledger with closure reasons. The latest report is saved per chat in this browser and survives reloads. Reports and recovery checkpoints never enter chat or vector memory. Export each turn to keep a complete test series. Older unsaved reports provide a clearly marked summary only.</small>
             </div>
 
             <div class="inline-drawer marginBot10">
