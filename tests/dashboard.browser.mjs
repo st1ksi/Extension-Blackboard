@@ -530,12 +530,109 @@ try {
     assert.equal(await panel.isVisible(), false);
     await page.locator('[data-board-close]').click();
     await checkInspector(page, panel, origin);
+    await checkCampaignSettings(page, origin);
     await checkPrivateReportExport(page);
     assert.deepEqual(errors, []);
     console.log('Dashboard browser checks passed: real handlers, shared state/drafts, tools/prompts, actions, keyboard, desktop & mobile.');
 } finally {
     await browser?.close();
     server.close();
+}
+
+async function checkCampaignSettings(parent, origin) {
+    const browserContext = await parent.context().browser().newContext();
+    const page = await browserContext.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.route('**/*', route => route.request().url().startsWith(origin) ? route.continue() : route.abort());
+    try {
+        await page.setViewportSize({width:1440,height:1000});
+        await page.goto(origin);
+        await page.waitForSelector('#blackboard_open_dashboard');
+        await page.locator('#blackboard_open_dashboard').click();
+        const panel = page.locator('#blackboard-dashboard');
+        const control = name => panel.locator(`[data-bb-control="blackboard_${name}"]`);
+        const local = () => page.evaluate(() => context.chatMetadata.blackboard_settings.values);
+        await control('settings_scope').selectOption('chat');
+        await control('game_system').selectOption('universal');
+        await panel.locator('[data-bb-tier="low"]').click();
+        await control('private_mode').selectOption('light');
+        await control('auto_scene_background').uncheck();
+        assert.equal((await local()).simulationFidelity, 'low');
+        assert.equal(await page.evaluate(() => context.extensionSettings.blackboard.simulationFidelity), 'ultra');
+        assert.equal(await page.evaluate(() => registered.has('SetSceneBackground')), false);
+        await panel.getByRole('tab', {name:'Instructions',exact:true}).click();
+        await control('custom_prompt').fill('LOCAL QUALITY SENTINEL');
+        await panel.getByRole('button', {name:'Save quality prompt',exact:true}).click();
+        await control('custom_prompt').fill('UNSAVED A DRAFT');
+        assert.equal((await local()).customPrompt, 'LOCAL QUALITY SENTINEL');
+        await page.evaluate(async () => {
+            window.campaignA = {chatId:context.chatId,chatMetadata:context.chatMetadata,chat:context.chat};
+            context.chatId = 'Independent campaign B'; context.chatMetadata={variables:{}}; context.chat=[];
+            await emit('CHAT_CHANGED');
+        });
+        assert.equal(await control('settings_scope').inputValue(), 'global');
+        assert.notEqual(await control('custom_prompt').inputValue(), 'UNSAVED A DRAFT');
+        assert.equal(await control('game_system').inputValue(), 'dnd5e');
+        assert.equal(await page.evaluate(() => registered.has('SetSceneBackground')), true);
+        await page.evaluate(async () => { Object.assign(context,campaignA); await emit('CHAT_CHANGED'); });
+        assert.equal(await control('settings_scope').inputValue(), 'chat');
+        assert.equal(await control('custom_prompt').inputValue(), 'UNSAVED A DRAFT');
+        assert.equal((await local()).customPrompt, 'LOCAL QUALITY SENTINEL');
+
+        // Restore serialized host metadata before the real entry point initializes.
+        // This page is an isolated fixture, never the user's server or chat.
+        const saved = await page.evaluate(() => ({chatId:context.chatId,chatMetadata:context.chatMetadata,
+            chat:context.chat,extensionSettings:context.extensionSettings}));
+        await page.addInitScript(saved => {
+            window.addEventListener('DOMContentLoaded', () => { Object.assign(window.context,saved); }, {once:true});
+        },saved);
+        await page.reload();
+        await page.waitForSelector('#blackboard_open_dashboard');
+        await page.locator('#blackboard_open_dashboard').click();
+        assert.equal(await control('settings_scope').inputValue(), 'chat');
+        assert.equal(await control('private_mode').inputValue(), 'light');
+        assert.equal(await control('game_system').inputValue(), 'universal');
+        assert.equal(await control('auto_scene_background').isChecked(), false);
+        await panel.getByRole('tab', {name:'Instructions',exact:true}).click();
+        assert.equal(await control('custom_prompt').inputValue(), 'LOCAL QUALITY SENTINEL', 'Reload retains saved instructions only.');
+        await panel.getByRole('tab', {name:'Settings',exact:true}).click();
+        await page.evaluate(async () => {
+            window.campaignA={chatId:context.chatId,chatMetadata:context.chatMetadata,chat:context.chat};
+            context.chatId += ' - Branch'; context.chatMetadata=structuredClone(context.chatMetadata); context.chat=structuredClone(context.chat);
+            await emit('CHAT_CHANGED');
+        });
+        assert.equal(await control('settings_scope').inputValue(), 'chat');
+        await panel.locator('[data-bb-tier="high"]').click();
+        await page.evaluate(async () => { Object.assign(context,campaignA); await emit('CHAT_CHANGED'); });
+        assert.equal((await local()).simulationFidelity, 'low', 'A branch owns its copied preferences.');
+        await control('settings_scope').selectOption('global');
+        await panel.locator('[data-bb-tier="mid"]').click();
+        await control('settings_scope').selectOption('chat');
+        assert.equal((await local()).simulationFidelity, 'low', 'Returning to local restores retained values.');
+        const reset = panel.getByRole('button', {name:'Copy global defaults to this chat',exact:true});
+        page.once('dialog', dialog => dialog.dismiss());
+        await reset.click();
+        assert.equal((await local()).simulationFidelity, 'low');
+        page.once('dialog', dialog => dialog.accept());
+        await reset.click();
+        assert.equal((await local()).simulationFidelity, 'mid');
+        assert.equal((await local()).gameSystem, 'dnd5e');
+        await control('game_system').selectOption('universal');
+        if (output) await page.screenshot({animations:'disabled',path:resolve(output,'chat-settings-desktop.png')});
+        await page.setViewportSize({width:320,height:780});
+        assert.ok(await panel.evaluate(p => [p,...p.querySelectorAll('.bb-dash-scroll, .bb-dash-scope')].every(e => e.scrollWidth <= e.clientWidth + 1)));
+        if (output) await page.screenshot({animations:'disabled',path:resolve(output,'chat-settings-mobile-320.png')});
+        await page.evaluate(async () => { context.chatId=null; context.chatMetadata={}; context.chat=[]; await emit('CHAT_CHANGED'); });
+        assert.equal(await control('settings_scope').inputValue(), 'global');
+        assert.equal(await control('settings_scope').locator('option[value="chat"]').evaluate(e => e.disabled), true,
+            JSON.stringify(await page.evaluate(() => ({native:document.querySelector('#blackboard_settings_scope option[value="chat"]').disabled,
+                mirror:document.querySelector('[data-bb-control="blackboard_settings_scope"] option[value="chat"]').disabled,
+                status:document.querySelector('#blackboard_settings_scope_status').textContent, chatId:context.chatId}))));
+        assert.equal(await reset.isDisabled(), true);
+        assert.deepEqual(errors, []);
+        console.log('Campaign settings browser checks passed: real controls, isolated drafts/tools, serialized metadata reload, branches, retained/reset defaults and mobile layout.');
+    } finally { await browserContext.close(); }
 }
 
 async function checkPrivateReportExport(page) {

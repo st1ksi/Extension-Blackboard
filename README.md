@@ -25,6 +25,8 @@ dependency build is needed for the Blackboard itself.
 - **Time and continuity:** a world clock, scheduled processes, resource tracking,
   and unchanged-block diagnostics.
 - **Quality presets:** Low, Mid, High and Ultra, plus custom instructions and budgets.
+- **Chat-specific settings:** inherit global defaults or keep an independent
+  configuration for each chat, including game rules, review mode and backgrounds.
 - **Optional private reviews:** Heavy mode uses focused detection, targeted repair
   and verification; Light mode combines detection into one pass, then corrects findings.
 - **Recovery:** checkpointed private work, confirmed dice and pending requests can
@@ -244,6 +246,31 @@ immediately; quality/background prompt edits have separate Save buttons. Selecti
 a different fidelity preset replaces its custom quality override. Arbitrary custom
 text is otherwise preserved and may need adjustment for a new game profile.
 
+**Settings for** selects the scope of every preference below it:
+
+- **Global defaults:** shared by chats without active local settings. Existing
+  chats continue using these defaults until you opt in to chat-specific settings.
+- **This chat:** initially copies the current global defaults, then keeps an
+  independent configuration in the saved chat's metadata. Later default changes
+  do not alter it. Open a saved chat before selecting this option.
+
+Switching back to **Global defaults** retains the chat's local configuration;
+select **This chat** again to restore it. **Copy global defaults to this chat**
+explicitly replaces the active local configuration after confirmation. These
+actions preserve the board, messages and existing snapshots.
+
+The scope includes simulation, auto-injection, rollback, game profile, fidelity,
+budgets, Private Turns/review/history mode, backgrounds and custom prompts.
+Prompt drafts remain separate for each scope in the current browser tab and need
+Save; page reload discards unsaved drafts. Branches inherit a copy of preferences
+at branch creation, independently of the board snapshot's historical position.
+Message deletion/swipes restore the board, not settings. A new chat normally
+starts with global defaults unless its metadata was copied by the host.
+
+Paused Private Turns still require their original effective configuration to
+resume. A scope change with identical values is compatible; changing active
+settings is not. Changes to unused global defaults do not affect a local turn.
+
 **Enable Simulation Blackboard** controls simulation prompts, updates and Private
 Turns. **Automatic scene backgrounds** is separate and can work with simulation
 disabled, using function calling, configured Image Generation and background
@@ -262,7 +289,7 @@ integrity and level eligibility. Level application must update the sheet too;
 every class feature and XP award justification is not automatically validated.
 See the [D&D schema source](prompts/systems/dnd5e-core.md).
 
-The game profile is **global**: select the appropriate one when changing campaigns.
+The game profile follows **Settings for**: global defaults or the current chat.
 Switching profiles does not convert or erase snapshots. Character cards, personas,
 greetings and lorebooks remain important sources of identity and rules; contradictory
 starting facts can produce a coherent board for the wrong character or scenario.
@@ -287,6 +314,8 @@ The board lives in `chatMetadata.variables.world_blackboard`; block ages live in
 `chatMetadata.blackboard_engine`. Snapshots use `message.extra.blackboard_snapshot`
 and `message.extra.blackboard_engine`, including swipe-specific data. Intermediate
 private revisions and findings are not added as chat or vector-memory entries.
+Optional local preferences use `chatMetadata.blackboard_settings`, separately from
+world state and snapshot history; they travel with the host's saved/exported chat.
 
 - **Model limits:** checks cannot prove semantic correctness or make every fictional
   process deterministic. Code validates structured data, references and workflow;

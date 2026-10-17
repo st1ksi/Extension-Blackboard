@@ -31,7 +31,7 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
     reportArchive = createPrivateReportArchive({ getContext: () => SillyTavern.getContext(),
         getAccount: async () => (await import('../../../user.js')).getCurrentUserHandle() });
     registerBlackboardPrivateRunner(async host => {
-        const s = settings();
+        const s = structuredClone(settings());
         if (!s.functionTool || !s.privateReview) return null;
         if (host.dryRun) return null;
         if (host.type === 'continue') throw new Error('Private review: use a new message or regenerate instead of Continue, to avoid replaying a resolved action.');

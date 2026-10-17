@@ -8,11 +8,11 @@ import { browserEnvironment } from './browser-fixtures.mjs';
 import { reportDatabase } from './report-store-fixtures.mjs';
 
 // Loads the real extension entry point. Only SillyTavern/DOM services are doubles.
-async function host(initialSettings = {}, environment = browserEnvironment({indexedDB:reportDatabase()})) {
+async function host(initialSettings = {}, environment = browserEnvironment({indexedDB:reportDatabase()}), initialMetadata = null) {
     const handlers = new Map(), tools = new Map(), prompts = new Map(), errors = [];
     const names = ['GENERATE_BEFORE_COMBINE_PROMPTS','MESSAGE_SENT','CHAT_CHANGED','MESSAGE_DELETED','MESSAGE_SWIPED','GENERATION_STARTED','MESSAGE_RECEIVED','TOOL_CALLS_PERFORMED'];
     const ctx = {
-        chat: [], chatId:'Test campaign', characterId:0, characters:[{avatar:'hero.png'}], chatMetadata: { variables: {} },
+        chat: [], chatId:'Test campaign', characterId:0, characters:[{avatar:'hero.png'}], chatMetadata: structuredClone(initialMetadata ?? { variables: {} }),
         extensionSettings: { blackboard: { simulationFidelity: 'ultra', functionTool: true, autoInjectPrompt: true, historyRollback: true, ...initialSettings } },
         eventTypes: Object.fromEntries(names.map(n => [n, n])),
         eventSource: { on: (event, f) => { const list = handlers.get(event) || []; list.push(f); handlers.set(event, list); } },
@@ -40,7 +40,7 @@ async function host(initialSettings = {}, environment = browserEnvironment({inde
                 if(key==='css')return (name,...args)=>args.length ? (properties.set('css:'+name,args[0]),element) : properties.get('css:'+name);
                 if(key==='prop')return (name,...args)=>args.length ? (properties.set(name,args[0]),element) : properties.get(name);
                 if(key==='on')return (event,handler)=>{events.set(event,handler);return element;};
-                if(key==='trigger')return event=>{for(const [name,handler] of events)if(name.split('.')[0]===event)handler.call(element);};
+                if(key==='trigger')return event=>{for(const [name,handler] of events)if(name.split(/\s+/).some(token=>token.split('.')[0]===event))handler.call(element);};
                 return ()=>element;
             }});
             elements.set(selector,element);
@@ -52,7 +52,7 @@ async function host(initialSettings = {}, environment = browserEnvironment({inde
             createElement: () => ({click() { exported.push(blobs.get(this.href)); }}),
         }, Blob, URL:{createObjectURL:blob=>{const key='blob:test-'+blobs.size;blobs.set(key,blob);return key;},revokeObjectURL:key=>blobs.delete(key)},
         console: { log() {}, debug() {}, warn() {}, error: (...args) => errors.push(args) },
-        toastr: { info:message=>notices.push(message), success() {}, warning: message => notices.push(message), error:message=>notices.push(message), clear() {} }, structuredClone, setTimeout, clearTimeout,
+        toastr: { info:message=>notices.push(message), success() {}, warning: message => notices.push(message), error:message=>notices.push(message), clear() {} }, structuredClone, setTimeout, clearTimeout, confirm: () => true,
     });
     const stubClass = { fromProps: props => props };
     const stubs = {
@@ -73,7 +73,7 @@ async function host(initialSettings = {}, environment = browserEnvironment({inde
     const cache = new Map();
     async function linker(specifier) {
         if (cache.has(specifier)) return cache.get(specifier);
-        if (['./board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js'].includes(specifier)) {
+        if (['./campaign-settings.js', './board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js'].includes(specifier)) {
             const mod = new vm.SourceTextModule(await readFile(new URL('../' + specifier.slice(2), import.meta.url), 'utf8'), { context: sandbox, importModuleDynamically: dynamicImport });
             cache.set(specifier, mod); await mod.link(linker); return mod;
         }
@@ -792,4 +792,262 @@ test('an unscoped setup failure cannot relabel or overwrite the preceding comple
     h.clearReport();await h.exportReport();
     assert.equal(h.exported.length,2);
     assert.equal(await h.exported[1].text(),JSON.stringify(JSON.parse(original),null,2));
+});
+
+const campaignState = h => ({chatId:h.ctx.chatId,chat:h.ctx.chat,chatMetadata:h.ctx.chatMetadata});
+async function switchCampaign(h, campaign) {
+    Object.assign(h.ctx,campaign);
+    await h.emit('CHAT_CHANGED');
+}
+function selectSettingsScope(h, scope) {
+    h.ui('#blackboard_settings_scope').val(scope).trigger('change');
+}
+
+test('campaign opt-in copies preferences while leaving global settings, canon and rollback snapshots intact', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1});
+    h.api.setBlackboard('[SCENE #room]\nExisting immutable canon.');
+    await user(h,'Look.');
+    const originalBoard = h.api.getBlackboard();
+    const originalSnapshot = h.ctx.chat[0].extra.blackboard_snapshot;
+    const globals = JSON.stringify(h.ctx.extensionSettings.blackboard);
+    assert.equal(h.ctx.chatMetadata.blackboard_settings,undefined,'Reading defaults must not opt the chat into a local configuration.');
+    selectSettingsScope(h,'chat');
+    const record = h.ctx.chatMetadata.blackboard_settings;
+    assert.equal(record.version,1); assert.equal(record.enabled,true);
+    assert.notEqual(record.values,h.ctx.extensionSettings.blackboard);
+    h.ui('#blackboard_fidelity_select').val('low').trigger('change');
+    h.ui('#blackboard_game_system').val('universal').trigger('change');
+    h.ui('#blackboard_private_mode').val('light').trigger('change');
+    h.ui('#blackboard_auto_scene_background').prop('checked',false).trigger('change');
+    assert.equal(record.values.simulationFidelity,'low');
+    assert.equal(record.values.gameSystem,'universal');
+    assert.equal(record.values.privateReviewMode,'light');
+    assert.equal(record.values.autoSceneBackground,false);
+    assert.equal(JSON.stringify(h.ctx.extensionSettings.blackboard),globals);
+    assert.equal(h.api.getBlackboard(),originalBoard);
+    assert.equal(h.ctx.chat[0].extra.blackboard_snapshot,originalSnapshot);
+    assert.match(h.prompts.get('blackboard_system_prompt'),/GAME SYSTEM PROFILE — UNIVERSAL/);
+    assert.doesNotMatch(h.tools.get('UpdateBlackboard').parameters.properties.content.description,/base_xp/);
+    assert.equal(h.tools.has('SetSceneBackground'),false);
+});
+
+test('campaign switching refreshes native controls, schemas and prompts without carrying local settings into global defaults', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1,autoSceneBackground:true});
+    selectSettingsScope(h,'chat');
+    h.ui('#blackboard_fidelity_select').val('low').trigger('change');
+    h.ui('#blackboard_game_system').val('universal').trigger('change');
+    h.ui('#blackboard_auto_scene_background').prop('checked',false).trigger('change');
+    const a = campaignState(h);
+    const b = {chatId:'Campaign B',chat:[],chatMetadata:{variables:{}}};
+    await switchCampaign(h,b);
+    assert.equal(h.ui('#blackboard_settings_scope').val(),'global');
+    assert.equal(h.ui('#blackboard_fidelity_select').val(),'ultra');
+    assert.equal(h.ui('#blackboard_game_system').val(),'dnd5e');
+    assert.equal(h.ui('#blackboard_auto_scene_background').prop('checked'),true);
+    assert.match(h.prompts.get('blackboard_system_prompt'),/5e-2014/);
+    assert.match(h.tools.get('UpdateBlackboard').parameters.properties.content.description,/base_xp/);
+    assert.equal(h.tools.has('SetSceneBackground'),true);
+    h.ui('#blackboard_fidelity_select').val('high').trigger('change');
+    h.ui('#blackboard_private_mode').val('light').trigger('change');
+    assert.equal(h.ctx.extensionSettings.blackboard.simulationFidelity,'high');
+    assert.equal(a.chatMetadata.blackboard_settings.values.simulationFidelity,'low');
+    await switchCampaign(h,a);
+    assert.equal(h.ui('#blackboard_settings_scope').val(),'chat');
+    assert.equal(h.ui('#blackboard_fidelity_select').val(),'low');
+    assert.equal(h.ui('#blackboard_game_system').val(),'universal');
+    assert.equal(h.ui('#blackboard_auto_scene_background').prop('checked'),false);
+    assert.equal(h.ui('#blackboard_private_mode').val(),'heavy','A keeps its copied preference after B changes the global default.');
+    assert.match(h.prompts.get('blackboard_system_prompt'),/GAME SYSTEM PROFILE — UNIVERSAL/);
+    assert.equal(h.tools.has('SetSceneBackground'),false);
+    await switchCampaign(h,b);
+    assert.equal(h.ui('#blackboard_fidelity_select').val(),'high');
+    assert.equal(h.ui('#blackboard_private_mode').val(),'light');
+});
+
+test('two local campaigns isolate every editor action, including custom budgets and prompt Save after a chat switch', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1});
+    const globals = JSON.stringify(h.ctx.extensionSettings.blackboard);
+    selectSettingsScope(h,'chat');
+    h.ui('#blackboard_custom_prompt').val('Campaign A saved quality.');
+    h.ui('#blackboard_save_prompt').trigger('click');
+    h.ui('#blackboard_background_custom_prompt').val('Campaign A background.');
+    h.ui('#blackboard_save_bg_prompt').trigger('click');
+    h.ui('#blackboard_history_rollback').prop('checked',false).trigger('change');
+    const a = campaignState(h);
+    h.ui('#blackboard_custom_prompt').val('Campaign A unsaved quality draft.');
+    h.ui('#blackboard_background_custom_prompt').val('Campaign A unsaved background draft.');
+    await switchCampaign(h,{chatId:'Independent local B',chat:[],chatMetadata:{variables:{}}});
+    selectSettingsScope(h,'chat');
+    assert.doesNotMatch(h.ui('#blackboard_custom_prompt').val(),/Campaign A/);
+    assert.doesNotMatch(h.ui('#blackboard_background_custom_prompt').val(),/Campaign A/);
+    h.ui('#blackboard_fidelity_select').val('custom').trigger('change');
+    h.ui('#blackboard_min_tokens').val(1350).trigger('change');
+    h.ui('#blackboard_max_tokens').val(4850).trigger('change');
+    h.ui('#blackboard_custom_prompt').val('Campaign B saved quality.');
+    h.ui('#blackboard_save_prompt').trigger('click');
+    h.ui('#blackboard_background_custom_prompt').val('Campaign B background.');
+    h.ui('#blackboard_save_bg_prompt').trigger('click');
+    h.ui('#blackboard_private_review').prop('checked',true).trigger('change');
+    h.ui('#blackboard_private_mode').val('light').trigger('change');
+    h.ui('#blackboard_private_format').val('full').trigger('change');
+    const b = campaignState(h), localB = b.chatMetadata.blackboard_settings.values;
+    assert.equal(localB.targetMinTokens,1350); assert.equal(localB.targetMaxTokens,4850);
+    assert.equal(localB.privateReview,true); assert.equal(localB.privateReviewMode,'light');
+    assert.equal(localB.privateReviewFormat,'full');
+    assert.equal(localB.customPrompt,'Campaign B saved quality.');
+    assert.equal(a.chatMetadata.blackboard_settings.values.customPrompt,'Campaign A saved quality.');
+    assert.equal(a.chatMetadata.blackboard_settings.values.customBackgroundPrompt,'Campaign A background.');
+    await switchCampaign(h,a);
+    assert.equal(h.ui('#blackboard_custom_prompt').val(),'Campaign A unsaved quality draft.');
+    assert.equal(h.ui('#blackboard_background_custom_prompt').val(),'Campaign A unsaved background draft.');
+    assert.equal(a.chatMetadata.blackboard_settings.values.customPrompt,'Campaign A saved quality.','Restoring an editor draft must not save it.');
+    assert.equal(a.chatMetadata.blackboard_settings.values.customBackgroundPrompt,'Campaign A background.');
+    assert.equal(h.ui('#blackboard_history_rollback').prop('checked'),false);
+    assert.equal(h.ui('#blackboard_private_review').prop('checked'),false);
+    assert.equal(h.ui('#blackboard_private_format').val(),'diff');
+    h.ui('#blackboard_save_prompt').trigger('click');
+    h.ui('#blackboard_save_bg_prompt').trigger('click');
+    assert.equal(a.chatMetadata.blackboard_settings.values.customPrompt,'Campaign A unsaved quality draft.');
+    assert.equal(a.chatMetadata.blackboard_settings.values.customBackgroundPrompt,'Campaign A unsaved background draft.');
+    assert.equal(localB.customPrompt,'Campaign B saved quality.','Save must never write through a handler captured for a previous chat.');
+    assert.equal(localB.customBackgroundPrompt,'Campaign B background.');
+    assert.equal(JSON.stringify(h.ctx.extensionSettings.blackboard),globals);
+});
+
+test('returning to global settings retains local preferences, and explicit reset copies the latest defaults only into this chat', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1,autoSceneBackground:true});
+    selectSettingsScope(h,'chat');
+    h.ui('#blackboard_game_system').val('universal').trigger('change');
+    h.ui('#blackboard_auto_scene_background').prop('checked',false).trigger('change');
+    const retained = h.ctx.chatMetadata.blackboard_settings.values;
+    selectSettingsScope(h,'global');
+    assert.equal(h.ctx.chatMetadata.blackboard_settings.enabled,false);
+    assert.equal(retained.gameSystem,'universal');
+    assert.equal(h.ui('#blackboard_game_system').val(),'dnd5e');
+    h.ui('#blackboard_fidelity_select').val('high').trigger('change');
+    const globals = JSON.stringify(h.ctx.extensionSettings.blackboard);
+    selectSettingsScope(h,'chat');
+    assert.equal(h.ui('#blackboard_game_system').val(),'universal');
+    assert.equal(h.ui('#blackboard_auto_scene_background').prop('checked'),false);
+    h.ui('#blackboard_reset_chat_settings').trigger('click');
+    assert.equal(h.ctx.chatMetadata.blackboard_settings.enabled,true);
+    assert.equal(h.ui('#blackboard_game_system').val(),'dnd5e');
+    assert.equal(h.ui('#blackboard_fidelity_select').val(),'high');
+    assert.equal(h.ui('#blackboard_auto_scene_background').prop('checked'),true);
+    assert.equal(JSON.stringify(h.ctx.extensionSettings.blackboard),globals);
+});
+
+test('saved local settings survive extension reload and inherited branches become independent copies', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1});
+    selectSettingsScope(h,'chat');
+    h.ui('#blackboard_game_system').val('universal').trigger('change');
+    h.ui('#blackboard_fidelity_select').val('low').trigger('change');
+    h.ui('#blackboard_custom_prompt').val('Persistent local quality instructions.');
+    h.ui('#blackboard_save_prompt').trigger('click');
+    const saved = JSON.parse(JSON.stringify(h.ctx.chatMetadata));
+    const reloaded = await host({privateReview:false,executionModeVersion:1},undefined,saved);
+    assert.equal(reloaded.ui('#blackboard_settings_scope').val(),'chat');
+    assert.equal(reloaded.ui('#blackboard_game_system').val(),'universal');
+    assert.equal(reloaded.ui('#blackboard_fidelity_select').val(),'low');
+    assert.equal(reloaded.ui('#blackboard_custom_prompt').val(),'Persistent local quality instructions.');
+    assert.match(reloaded.prompts.get('blackboard_system_prompt'),/Persistent local quality instructions/);
+    const original = campaignState(reloaded);
+    const branch = {chatId:'Test campaign - Branch #1',chat:structuredClone(original.chat),chatMetadata:structuredClone(original.chatMetadata)};
+    await switchCampaign(reloaded,branch);
+    assert.equal(reloaded.ui('#blackboard_game_system').val(),'universal');
+    reloaded.ui('#blackboard_game_system').val('dnd5e').trigger('change');
+    reloaded.ui('#blackboard_custom_prompt').val('Branch-specific quality instructions.');
+    reloaded.ui('#blackboard_save_prompt').trigger('click');
+    await switchCampaign(reloaded,original);
+    assert.equal(reloaded.ui('#blackboard_game_system').val(),'universal');
+    assert.equal(reloaded.ui('#blackboard_custom_prompt').val(),'Persistent local quality instructions.');
+    assert.equal(branch.chatMetadata.blackboard_settings.values.customPrompt,'Branch-specific quality instructions.');
+});
+
+test('campaign master switch and backgrounds remain independent across chat changes', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1,autoSceneBackground:false});
+    selectSettingsScope(h,'chat');
+    h.ui('#blackboard_function_tool').prop('checked',false).trigger('change');
+    h.ui('#blackboard_auto_scene_background').prop('checked',true).trigger('change');
+    const a = campaignState(h);
+    assert.equal(h.tools.has('UpdateBlackboard'),false);
+    assert.equal(h.tools.has('SetSceneBackground'),true);
+    assert.equal(h.prompts.get('blackboard_system_prompt'),'');
+    assert.match(h.prompts.get('blackboard_bg_prompt'),/BACKGROUND EXECUTION — STANDARD/);
+    assert.equal(await h.runPrivate({type:'normal'}),null);
+    await switchCampaign(h,{chatId:'Global simulation campaign',chat:[],chatMetadata:{variables:{}}});
+    assert.equal(h.tools.has('UpdateBlackboard'),true);
+    assert.equal(h.tools.has('SetSceneBackground'),false);
+    assert.match(h.prompts.get('blackboard_system_prompt'),/UpdateBlackboard/);
+    assert.equal(h.prompts.get('blackboard_bg_prompt'),'');
+    await switchCampaign(h,a);
+    assert.equal(h.ui('#blackboard_function_tool').prop('checked'),false);
+    assert.equal(h.ui('#blackboard_auto_scene_background').prop('checked'),true);
+    assert.equal(h.tools.has('UpdateBlackboard'),false);
+    assert.equal(h.tools.has('SetSceneBackground'),true);
+    assert.equal(h.ctx.extensionSettings.blackboard.functionTool,true);
+    assert.equal(h.ctx.extensionSettings.blackboard.autoSceneBackground,false);
+});
+
+test('local light review and universal profile reach the registered private runner without changing global execution defaults', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1,autoSceneBackground:false});
+    selectSettingsScope(h,'chat');
+    h.ui('#blackboard_game_system').val('universal').trigger('change');
+    h.ui('#blackboard_private_review').prop('checked',true).trigger('change');
+    h.ui('#blackboard_private_mode').val('light').trigger('change');
+    const globals = JSON.stringify(h.ctx.extensionSettings.blackboard);
+    await completeReportTurn(h,'The locally configured turn is complete.');
+    assert.equal(h.getReport().reviewMode,'light');
+    assert.equal(h.getReport().gameSystem,'universal');
+    assert.equal(h.getReport().reviews,1); assert.equal(h.getReport().repairs,1);
+    assert.equal(JSON.stringify(h.ctx.extensionSettings.blackboard),globals);
+    assert.equal(h.ctx.chatMetadata.blackboard_settings.values.privateReview,true);
+    assert.equal(h.ctx.chat.at(-1).extra.blackboard_snapshot,h.api.getBlackboard());
+    assert.equal(h.ctx.chat.at(-1).extra.blackboard_settings,undefined,'Only the final board is an answer snapshot; campaign preferences stay in chat metadata.');
+});
+
+test('settings writes are rejected during a chat-load gap and resume only after CHAT_CHANGED refreshes the displayed configuration', async () => {
+    for(const initialScope of ['global','chat']){
+        const h=await host({privateReview:false,executionModeVersion:1,autoSceneBackground:true});
+        if(initialScope==='chat'){
+            selectSettingsScope(h,'chat');
+            h.ui('#blackboard_game_system').val('universal').trigger('change');
+            h.ui('#blackboard_custom_prompt').val('Campaign A saved instructions.');
+            h.ui('#blackboard_save_prompt').trigger('click');
+        }
+        const globals=h.ctx.extensionSettings.blackboard;
+        const oldPreferences=initialScope==='chat'?h.ctx.chatMetadata.blackboard_settings.values:globals;
+        const globalBefore=JSON.stringify(globals),oldBefore=JSON.stringify(oldPreferences);
+        const newPreferences={...structuredClone(globals),customPrompt:'Campaign B saved instructions.',gameSystem:'dnd5e',privateReview:false};
+        h.ctx.chatId='Campaign loading before its event';
+        h.ctx.chat=[];
+        h.ctx.chatMetadata={variables:{},blackboard_settings:{version:1,enabled:true,values:newPreferences}};
+        const newBefore=JSON.stringify(newPreferences);
+        // Stock SillyTavern replaces its context before emitting CHAT_CHANGED.
+        // The still-visible settings panel must not write into either campaign.
+        h.ui('#blackboard_function_tool').prop('checked',false).trigger('change');
+        h.ui('#blackboard_auto_scene_background').prop('checked',false).trigger('change');
+        selectSettingsScope(h,'global');
+        h.ui('#blackboard_custom_prompt').val('Rejected stale quality Save.');
+        h.ui('#blackboard_save_prompt').trigger('click');
+        h.ui('#blackboard_background_custom_prompt').val('Rejected stale background Save.');
+        h.ui('#blackboard_save_bg_prompt').trigger('click');
+        assert.equal(JSON.stringify(globals),globalBefore,`${initialScope}: stale controls cannot change global defaults.`);
+        assert.equal(JSON.stringify(oldPreferences),oldBefore,`${initialScope}: stale controls cannot change the departed chat.`);
+        assert.equal(JSON.stringify(newPreferences),newBefore,`${initialScope}: a loading chat cannot receive writes from the previous view.`);
+        assert.equal(h.ctx.chatMetadata.blackboard_settings.enabled,true,'The rejected scope selector must not disable the incoming override.');
+        assert.match(h.notices.at(-1),/chat is changing|finish loading/i);
+        await h.emit('CHAT_CHANGED');
+        assert.equal(h.ui('#blackboard_settings_scope').val(),'chat');
+        assert.equal(h.ui('#blackboard_custom_prompt').val(),'Campaign B saved instructions.');
+        assert.equal(h.ui('#blackboard_function_tool').prop('checked'),true);
+        assert.equal(h.ui('#blackboard_auto_scene_background').prop('checked'),true);
+        h.ui('#blackboard_function_tool').prop('checked',false).trigger('change');
+        h.ui('#blackboard_custom_prompt').val('Campaign B intentionally edited after loading.');
+        h.ui('#blackboard_save_prompt').trigger('click');
+        assert.equal(newPreferences.functionTool,false);
+        assert.equal(newPreferences.customPrompt,'Campaign B intentionally edited after loading.');
+        assert.equal(JSON.stringify(globals),globalBefore);
+        assert.equal(JSON.stringify(oldPreferences),oldBefore);
+    }
 });

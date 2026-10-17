@@ -6,6 +6,7 @@ import { GAME_SYSTEMS, gameSystem, composeGamePrompt, resolveQualityPrompt, GENE
 import { executionInstructions, migrateExecutionSettings } from './turn-instructions.js';
 import { normalizePrivateReviewMode } from './private-modes.js';
 import { privateTurnCapabilities } from './capabilities.js';
+import { createCampaignSettings } from './campaign-settings.js';
 import { installSettingsDashboard } from './dashboard.js';
 import { installBoardInspector } from './inspector.js';
 import { createPanelWorkspace } from './panel-workspace.js';
@@ -27,6 +28,7 @@ const VARIABLE_NAME = 'world_blackboard';
 const PROMPT_INJECTION_KEY = 'blackboard_system_prompt';
 const BG_PROMPT_INJECTION_KEY = 'blackboard_bg_prompt';
 let boardInspector, settingsDashboard, panelWorkspace;
+let refreshSettingsUI = () => {};
 
 
 
@@ -98,6 +100,13 @@ const defaultSettings = Object.freeze({
     customBackgroundPrompt: '',
 });
 
+const campaignSettings = createCampaignSettings({
+    getContext: () => SillyTavern.getContext(), defaults: defaultSettings,
+    migrate: migrateExecutionSettings,
+    normalize: settings => { settings.privateReviewMode = normalizePrivateReviewMode(settings.privateReviewMode); },
+    onSaveError: error => toastr.error(`Could not save chat settings: ${error.message}`, 'Simulation Blackboard'),
+});
+
 let chatDebounceTimer = null;
 /**
  * Safe helper to trigger debounced chat saving.
@@ -138,18 +147,7 @@ function setExtensionPromptSafe(key, value, position, depth, scan = false, role 
  * Gets or initializes extension settings.
  */
 function getSettings() {
-    const { extensionSettings } = SillyTavern.getContext();
-    if (!extensionSettings[MODULE_NAME]) {
-        extensionSettings[MODULE_NAME] = structuredClone(defaultSettings);
-    }
-    migrateExecutionSettings(extensionSettings[MODULE_NAME]);
-    for (const key of Object.keys(defaultSettings)) {
-        if (!Object.hasOwn(extensionSettings[MODULE_NAME], key)) {
-            extensionSettings[MODULE_NAME][key] = defaultSettings[key];
-        }
-    }
-    extensionSettings[MODULE_NAME].privateReviewMode = normalizePrivateReviewMode(extensionSettings[MODULE_NAME].privateReviewMode);
-    return extensionSettings[MODULE_NAME];
+    return campaignSettings.get();
 }
 
 /**
@@ -697,28 +695,95 @@ async function addSettingsDrawer() {
         const getSettingsContainer = () => $(document.getElementById('blackboard_container') ?? document.getElementById('extensions_settings2'));
         getSettingsContainer().append(settingsHtml);
 
-        const settings = getSettings();
+        let settings = getSettings();
+        let displayedScope = campaignSettings.viewKey();
+        const promptDrafts = new Map();
+        let displayedMetadata = SillyTavern.getContext().chatMetadata ?? SillyTavern.getContext().chat_metadata;
+        const chatIdentity = () => {
+            const context = SillyTavern.getContext();
+            return JSON.stringify([context.groupId ?? context.characters?.[context.characterId]?.avatar ?? context.characterId,
+                context.chatId ?? context.getCurrentChatId?.()]);
+        };
+        let displayedChat = chatIdentity();
+        function ensureSettingsCurrent() {
+            const context = SillyTavern.getContext();
+            if ((context.chatMetadata ?? context.chat_metadata) === displayedMetadata && chatIdentity() === displayedChat
+                && settings === getSettings() && displayedScope === campaignSettings.viewKey()) return true;
+            // A chat load changes context before CHAT_CHANGED. Keep this view's
+            // drafts intact and reject writes until that event refreshes it.
+            toastr.info('The chat is changing. Wait for its settings to finish loading, then try again.', 'Simulation Blackboard');
+            return false;
+        }
+        function persistSettings() {
+            Promise.resolve(campaignSettings.save()).catch(error => {
+                toastr.error(`Could not save Blackboard settings: ${error.message}`, 'Simulation Blackboard');
+            });
+        }
+        function rememberPromptDrafts() {
+            const quality = $('#blackboard_custom_prompt').val();
+            const background = $('#blackboard_background_custom_prompt').val();
+            const savedQuality = composeGamePrompt(settings, FIDELITY_PRESETS).base;
+            const savedBackground = settings.customBackgroundPrompt?.trim()
+                ? settings.customBackgroundPrompt : DEFAULT_BACKGROUND_SYSTEM_PROMPT;
+            if (quality !== savedQuality || background !== savedBackground) {
+                promptDrafts.set(displayedScope, {
+                    quality: quality !== savedQuality ? quality : undefined,
+                    background: background !== savedBackground ? background : undefined,
+                });
+            } else promptDrafts.delete(displayedScope);
+        }
+        function scopeChanged() {
+            refreshSettingsUI({ remember: false });
+            registerFunctionTools();
+            syncExtensionPrompt();
+        }
+        $('#blackboard_settings_scope').on('change', function () {
+            if (!ensureSettingsCurrent()) return;
+            rememberPromptDrafts();
+            try {
+                campaignSettings.setScope(String($(this).val()));
+                scopeChanged();
+            } catch (error) {
+                refreshSettingsUI({ remember: false });
+                toastr.error(error.message, 'Simulation Blackboard');
+            }
+        });
+        $('#blackboard_reset_chat_settings').on('click', () => {
+            if (!ensureSettingsCurrent()) return;
+            if (campaignSettings.status().scope !== 'chat') return;
+            if (!confirm('Replace this chat’s Blackboard settings and prompt drafts with the current global defaults? The board and message history will be preserved.')) return;
+            try {
+                promptDrafts.delete(campaignSettings.viewKey());
+                campaignSettings.resetChat();
+                scopeChanged();
+                toastr.success('Global defaults copied to this chat.');
+            } catch (error) { toastr.error(error.message, 'Simulation Blackboard'); }
+        });
         $('#blackboard_function_tool').prop('checked', settings.functionTool).on('change', function () {
+            if (!ensureSettingsCurrent()) return;
             settings.functionTool = !!$(this).prop('checked');
             syncExtensionPrompt();
             updateExecutionUI();
             updateBackgroundStatus();
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
             registerFunctionTools();
         });
 
         $('#blackboard_auto_inject_prompt').prop('checked', settings.autoInjectPrompt).on('change', function () {
+            if (!ensureSettingsCurrent()) return;
             settings.autoInjectPrompt = !!$(this).prop('checked');
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
             syncExtensionPrompt();
         });
 
         $('#blackboard_history_rollback').prop('checked', settings.historyRollback).on('change', function () {
+            if (!ensureSettingsCurrent()) return;
             settings.historyRollback = !!$(this).prop('checked');
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
         });
 
         $('#blackboard_private_review').prop('checked', settings.privateReview).on('change', function () {
+            if (!ensureSettingsCurrent()) return;
             const capabilities = privateTurnCapabilities();
             if ($(this).prop('checked') && !capabilities.supported) {
                 $(this).prop('checked', settings.privateReview);
@@ -728,7 +793,7 @@ async function addSettingsDrawer() {
             }
             settings.privateReview = !!$(this).prop('checked');
             updateExecutionUI();
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
             syncExtensionPrompt();
         });
         function updateExecutionUI() {
@@ -752,14 +817,16 @@ async function addSettingsDrawer() {
                 : 'Standard: self-check within the ordinary generation; no separate audit requests.');
         }
         $('#blackboard_private_mode').val(settings.privateReviewMode).on('change', function () {
+            if (!ensureSettingsCurrent()) return;
             settings.privateReviewMode = normalizePrivateReviewMode($(this).val());
             updateExecutionUI();
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
             syncExtensionPrompt();
         });
         $('#blackboard_private_format').val(settings.privateReviewFormat).on('change', function () {
+            if (!ensureSettingsCurrent()) return;
             settings.privateReviewFormat = $(this).val() === 'full' ? 'full' : 'diff';
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
         });
         $('#blackboard_private_export').on('click', downloadPrivateReport);
         updateExecutionUI();
@@ -796,6 +863,7 @@ async function addSettingsDrawer() {
         }
 
         $fidelitySelect.on('change', function () {
+            if (!ensureSettingsCurrent()) return;
             const selected = String($(this).val() || 'mid');
             settings.simulationFidelity = selected;
             if (selected !== 'custom') {
@@ -806,58 +874,63 @@ async function addSettingsDrawer() {
                 delete settings.systemPromptVariant;
             }
             updateFidelityUI();
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
             syncExtensionPrompt();
             toastr.info(`Simulation Fidelity switched to ${FIDELITY_PRESETS[selected]?.name || selected}.`);
         });
 
         $minTokensInput.on('change input', function () {
+            if (!ensureSettingsCurrent()) return;
             const val = parseInt($(this).val(), 10);
             if (!isNaN(val) && val > 0) {
                 settings.targetMinTokens = val;
                 settings.targetMaxTokens = Math.max(val, settings.targetMaxTokens);
                 $maxTokensInput.val(settings.targetMaxTokens);
                 syncExtensionPrompt();
-                SillyTavern.getContext().saveSettingsDebounced?.();
+                persistSettings();
             }
         });
 
         $maxTokensInput.on('change input', function () {
+            if (!ensureSettingsCurrent()) return;
             const val = parseInt($(this).val(), 10);
             if (!isNaN(val) && val > 0) {
                 settings.targetMaxTokens = Math.max(val, settings.targetMinTokens);
                 $maxTokensInput.val(settings.targetMaxTokens);
                 syncExtensionPrompt();
-                SillyTavern.getContext().saveSettingsDebounced?.();
+                persistSettings();
             }
         });
 
         $('#blackboard_game_system').on('change', function () {
+            if (!ensureSettingsCurrent()) return;
             settings.gameSystem = $(this).val() === 'universal' ? 'universal' : 'dnd5e';
             updateFidelityUI();
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
             registerFunctionTools();
             syncExtensionPrompt();
             toastr.info('Game profile changed. Existing chat state has not been converted.');
         });
 
         $('#blackboard_save_prompt').on('click', () => {
+            if (!ensureSettingsCurrent()) return;
             const val = $('#blackboard_custom_prompt').val()?.trim() ?? '';
             settings.systemPromptVariant = resolveQualityPrompt(settings, FIDELITY_PRESETS).variant;
             if (settings.customPrompt && !settings.customPromptBackup) settings.customPromptBackup = settings.customPrompt;
             settings.customPrompt = val;
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
             syncExtensionPrompt();
             toastr.success('Blackboard system prompt saved.');
         });
 
         $('#blackboard_reset_prompt').on('click', () => {
+            if (!ensureSettingsCurrent()) return;
             const currentFidelity = settings.simulationFidelity || 'mid';
             const preset = FIDELITY_PRESETS[currentFidelity] || FIDELITY_PRESETS.mid;
             settings.customPrompt = '';
             delete settings.systemPromptVariant;
             updateFidelityUI();
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
             syncExtensionPrompt();
             toastr.info(`System prompt reset to ${preset.name} default.`);
         });
@@ -876,9 +949,10 @@ async function addSettingsDrawer() {
         $('#blackboard_private_review').on('change.background', updateBackgroundStatus);
         $('#blackboard_auto_inject_prompt').on('change.background', updateBackgroundStatus);
         $('#blackboard_auto_scene_background').prop('checked', !!settings.autoSceneBackground).on('change', function () {
+            if (!ensureSettingsCurrent()) return;
             settings.autoSceneBackground = !!$(this).prop('checked');
             updateBackgroundStatus();
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
             registerFunctionTools();
             syncExtensionPrompt();
         });
@@ -889,22 +963,57 @@ async function addSettingsDrawer() {
         $('#blackboard_background_custom_prompt').val(activeBgPrompt);
 
         $('#blackboard_save_bg_prompt').on('click', () => {
+            if (!ensureSettingsCurrent()) return;
             const val = $('#blackboard_background_custom_prompt').val()?.trim() ?? '';
             settings.customBackgroundPrompt = val;
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
             syncExtensionPrompt();
             toastr.success('Background generation instructions saved.');
         });
 
         $('#blackboard_reset_bg_prompt').on('click', () => {
+            if (!ensureSettingsCurrent()) return;
             $('#blackboard_background_custom_prompt').val(DEFAULT_BACKGROUND_SYSTEM_PROMPT);
             settings.customBackgroundPrompt = '';
-            SillyTavern.getContext().saveSettingsDebounced?.();
+            persistSettings();
             syncExtensionPrompt();
             toastr.info('Background generation instructions reset to default.');
         });
 
-        updateFidelityUI();
+        refreshSettingsUI = ({ remember = true } = {}) => {
+            if (remember) rememberPromptDrafts();
+            settings = getSettings();
+            displayedScope = campaignSettings.viewKey();
+            displayedMetadata = SillyTavern.getContext().chatMetadata ?? SillyTavern.getContext().chat_metadata;
+            displayedChat = chatIdentity();
+            const scope = campaignSettings.status();
+            $('#blackboard_settings_scope').val(scope.scope);
+            $('#blackboard_settings_scope option[value="chat"]').prop('disabled', !scope.available);
+            $('#blackboard_reset_chat_settings').prop('disabled', scope.scope !== 'chat');
+            $('#blackboard_settings_scope_status').text(scope.scope === 'chat'
+                ? `Editing settings for this chat: ${scope.chatId}. Other chats and global defaults are unchanged. Branches inherit a copy.`
+                : !scope.available
+                    ? 'Editing global defaults. Open a saved chat to give it its own settings.'
+                    : `Editing global defaults, shared by chats without active chat settings.${scope.retained ? ' This chat’s saved settings are retained; select This chat to use them again.' : ' Select This chat to start an independent copy.'}`);
+            $('#blackboard_function_tool').prop('checked', settings.functionTool);
+            $('#blackboard_auto_inject_prompt').prop('checked', settings.autoInjectPrompt);
+            $('#blackboard_history_rollback').prop('checked', settings.historyRollback);
+            $('#blackboard_private_review').prop('checked', settings.privateReview);
+            $('#blackboard_private_format').val(settings.privateReviewFormat);
+            $('#blackboard_auto_scene_background').prop('checked', !!settings.autoSceneBackground);
+            updateExecutionUI();
+            updateFidelityUI();
+            updateBackgroundStatus();
+            $('#blackboard_background_custom_prompt').val(settings.customBackgroundPrompt?.trim()
+                ? settings.customBackgroundPrompt : DEFAULT_BACKGROUND_SYSTEM_PROMPT);
+            const draft = promptDrafts.get(displayedScope);
+            if (draft) {
+                if (draft.quality !== undefined) $('#blackboard_custom_prompt').val(draft.quality);
+                if (draft.background !== undefined) $('#blackboard_background_custom_prompt').val(draft.background);
+            }
+            settingsDashboard?.refresh();
+        };
+        refreshSettingsUI({ remember: false });
 
         $('#blackboard_open_from_settings').on('click', () => {
             openBlackboardModal();
@@ -946,6 +1055,8 @@ jQuery(async function () {
                 syncExtensionPrompt();
             });
             on('CHAT_CHANGED', () => {
+                refreshSettingsUI();
+                registerFunctionTools();
                 clearPrivateReport();
                 const restored = syncBlackboardFromHistory('chat_changed');
                 if (!restored) { getEngine(); stampSnapshot(); }
@@ -983,7 +1094,7 @@ jQuery(async function () {
                 getSettings().functionTool = false;
                 $('#blackboard_function_tool').prop('checked', false).trigger('change');
                 registerFunctionTools(); syncExtensionPrompt();
-                SillyTavern.getContext().saveSettingsDebounced?.();
+                Promise.resolve(campaignSettings.save()).catch(error => toastr.error(error.message, 'Simulation Blackboard'));
             },
         });
         console.log('[Blackboard] Extension loaded successfully with private transition review.');

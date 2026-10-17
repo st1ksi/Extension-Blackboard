@@ -9,6 +9,7 @@ export function installSettingsDashboard({ html, presets, document = globalThis.
     const nativeRoot = launcher.closest('.blackboard_settings');
     const source = id => document.getElementById(id);
     const controls = [...panel.querySelectorAll('[data-bb-control]')];
+    const actions = [...panel.querySelectorAll('[data-bb-action]')];
     const tabs = [...panel.querySelectorAll('[data-bb-tab]')];
     const tierGroup = panel.querySelector('[data-bb-tiers]');
     const tiers = [];
@@ -40,10 +41,20 @@ export function installSettingsDashboard({ html, presets, document = globalThis.
         for (const control of controls) {
             const native = source(control.dataset.bbControl);
             if (!native) continue;
+            if (control.tagName === 'SELECT') {
+                for (const option of control.options) {
+                    const nativeOption = [...native.options].find(item => item.value === option.value);
+                    option.disabled = nativeOption?.disabled ?? false;
+                    option.hidden = nativeOption?.hidden ?? false;
+                }
+            }
             if (control.type === 'checkbox') control.checked = native.checked;
             else if (control.value !== native.value) control.value = native.value;
             control.disabled = native.disabled;
             control.readOnly = native.readOnly;
+        }
+        for (const button of actions) {
+            button.disabled = Boolean(source(button.dataset.bbAction)?.disabled);
         }
         for (const copy of panel.querySelectorAll('[data-bb-text]')) {
             copy.textContent = source(copy.dataset.bbText)?.textContent || '';
@@ -148,12 +159,14 @@ export function installSettingsDashboard({ html, presets, document = globalThis.
             refresh(); // Reflect clamping or a rejected change immediately.
         });
     }
-    for (const button of panel.querySelectorAll('[data-bb-action]')) {
+    for (const button of actions) {
         button.addEventListener('click', () => {
             const action = button.dataset.bbAction;
-            $(source(action)).trigger('click');
+            const native = source(action);
+            if (!native || native.disabled) return;
+            $(native).trigger('click');
             refresh();
-            if (action.includes('_save_') || action.includes('_reset_')) {
+            if (action !== 'blackboard_reset_chat_settings' && (action.includes('_save_') || action.includes('_reset_'))) {
                 panel.querySelector('[data-bb-feedback]').textContent = action.includes('_save_') ? 'Instructions saved.' : 'Default instructions restored.';
             }
         });

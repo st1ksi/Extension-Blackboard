@@ -8,6 +8,11 @@
         <button type="button" id="bb-tab-instructions" role="tab" aria-selected="false" aria-controls="bb-pane-instructions" tabindex="-1" data-bb-tab="instructions">Instructions</button>
     </div>
     <div class="bb-dash-scroll">
+        <section class="bb-dash-scope" aria-label="Settings scope">
+            <label class="bb-dash-select-row"><span>Settings for</span><select data-bb-control="blackboard_settings_scope" aria-describedby="bb-settings-scope-status"><option value="global">Global defaults</option><option value="chat">This chat</option></select></label>
+            <p id="bb-settings-scope-status" class="bb-dash-hint" data-bb-text="blackboard_settings_scope_status" role="status" aria-live="polite"></p>
+            <button type="button" data-bb-action="blackboard_reset_chat_settings" disabled>Copy global defaults to this chat</button>
+        </section>
         <div id="bb-pane-settings" role="tabpanel" aria-labelledby="bb-tab-settings" class="bb-dash-pane">
             <div class="bb-dash-master">
                 <label class="bb-dash-toggle"><span><strong>Enable Simulation Blackboard</strong><small>Persistent world state and simulation rules.</small></span><input type="checkbox" data-bb-control="blackboard_function_tool" role="switch"></label>
@@ -23,7 +28,7 @@
                     <label>Maximum tokens<input type="number" min="200" max="200000" data-bb-control="blackboard_max_tokens"></label>
                 </div>
                 <label class="bb-dash-select-row"><span>Game system</span><select data-bb-control="blackboard_game_system"><option value="universal">Universal</option><option value="dnd5e">D&amp;D 5e (2014 / 2024)</option></select></label>
-                <p class="bb-dash-hint">Settings apply globally; existing snapshots are preserved.</p>
+                <p class="bb-dash-hint">Changes apply to the selected settings scope; existing snapshots are preserved.</p>
             </section>
 
             <section class="bb-dash-section">

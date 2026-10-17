@@ -4,6 +4,20 @@ This file records development history, not a claim that every version was publis
 as a GitHub Release. Entries summarize previous notes. Dates are omitted where no
 release date was established. Current behavior is described in [README.md](README.md).
 
+## 1.14.0 — 2026-10-17 — Chat-specific settings
+
+- Choose Global defaults or This chat in both native settings and Control Panel.
+  Existing chats inherit defaults until explicitly given an independent settings copy.
+- Isolate game profile, fidelity/budgets, simulation, rollback, Private Turns,
+  backgrounds and custom instructions per chat, stored in its metadata.
+- Retain chat preferences when switching back to defaults; copy current defaults
+  into an active local configuration only through the explicit reset action.
+- Refresh controls, prompts and tools when switching chats. Reject stale settings
+  actions while a different chat is still loading. Keep prompt drafts separate by scope.
+- Branches inherit current chat settings; board rollback does not rewrite preferences.
+- Keep scope bookkeeping outside private recovery fingerprints and freeze each
+  private turn's effective settings. Identical settings preserve checkpoint compatibility.
+
 ## 1.13.1 — 2026-10-15 — Light reviews and durable private reports
 
 - Public release of the Heavy/Light review selector and durable report export,

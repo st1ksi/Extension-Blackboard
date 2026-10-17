@@ -186,6 +186,11 @@
 .blackboard-dashboard-launcher small { margin-top: 4px; font-size: 12px; color: #b1bec8; }
 .blackboard-dashboard-launcher .bb-launch-icon { color: #92c4db; font-size: 18px; }
 .blackboard-dashboard-launcher .bb-launch-arrow { margin-left: auto; color: #92c4db; }
+.blackboard_settings .blackboard-settings-scope { padding: 12px; border: 1px solid #699eb547; border-radius: 8px; background: #78bdd508; }
+.blackboard_settings .blackboard-settings-scope select { width: 100%; min-width: 0; margin: 6px 0; }
+.blackboard_settings .blackboard-settings-scope small { overflow-wrap: anywhere; }
+.blackboard_settings .blackboard-settings-scope button { max-width: 100%; margin-top: 8px; white-space: normal; }
+.blackboard_settings .blackboard-settings-scope button:disabled { opacity: .45; cursor: not-allowed; }
 .blackboard-dashboard {
     --bb-accent: #9acde3;
     --bb-muted: #aab8c3;
@@ -227,6 +232,10 @@
 .blackboard-dashboard .bb-dash-scroll::-webkit-scrollbar { width: 5px; }
 .blackboard-dashboard .bb-dash-scroll::-webkit-scrollbar-thumb { background: #566773; border-radius: 6px; }
 .blackboard-dashboard .bb-dash-scroll::-webkit-scrollbar-track { background: transparent; }
+.blackboard-dashboard .bb-dash-scope { margin: 18px 22px 0; padding: 12px; border: 1px solid #699eb547; border-radius: 8px; background: #78bdd508; box-shadow: inset 0 0 14px #78bdd507; }
+.blackboard-dashboard .bb-dash-scope .bb-dash-select-row { margin: 0; }
+.blackboard-dashboard .bb-dash-scope .bb-dash-select-row select { min-width: 0; }
+.blackboard-dashboard .bb-dash-scope > button { max-width: 100%; font-size: 11px; margin-top: 8px; }
 .blackboard-dashboard .bb-dash-pane { padding: 20px 22px; }
 .blackboard-dashboard .bb-dash-master { padding-bottom: 18px; border-bottom: 1px solid #a6c2d31f; }
 .blackboard-dashboard .bb-dash-toggle { display: flex; align-items: center; justify-content: space-between; gap: 20px; cursor: pointer; margin: 0; }
@@ -299,6 +308,7 @@
     .blackboard-dashboard { right: 10px; width: calc(100vw - 20px); max-width: none; height: calc(100vh - 24px); height: calc(100dvh - 24px); border-radius: 10px; }
     .blackboard-dashboard .bb-dash-header { padding: 16px 16px 12px; }
     .blackboard-dashboard .bb-dash-tabs { padding: 0 16px; }
+    .blackboard-dashboard .bb-dash-scope { margin: 16px 16px 0; }
     .blackboard-dashboard .bb-dash-pane { padding: 16px; }
     .blackboard-dashboard .bb-dash-footer { padding: 12px 16px; }
     .blackboard-dashboard .bb-dash-close { width: 40px; height: 40px; }

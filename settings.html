@@ -10,6 +10,15 @@
                 <span><strong>Open control panel</strong><small>All settings in a dedicated interface</small></span>
                 <span class="bb-launch-arrow" aria-hidden="true">↗</span>
             </button>
+            <div class="blackboard-settings-scope marginBot10">
+                <label for="blackboard_settings_scope"><b>Settings for:</b></label>
+                <select id="blackboard_settings_scope" class="text_pole" aria-describedby="blackboard_settings_scope_status">
+                    <option value="global">Global defaults</option>
+                    <option value="chat">This chat</option>
+                </select>
+                <small id="blackboard_settings_scope_status" class="text-muted block" role="status" aria-live="polite"></small>
+                <button id="blackboard_reset_chat_settings" type="button" class="menu_button" disabled>Copy global defaults to this chat</button>
+            </div>
             <div class="marginBot10">
                 <label class="checkbox_label" for="blackboard_function_tool">
                     <input id="blackboard_function_tool" type="checkbox">
@@ -73,7 +82,7 @@
                     <option value="dnd5e">D&amp;D 5e (2014 / 2024)</option>
                 </select>
                 <small id="blackboard_game_system_desc" class="text-muted block marginTop5"></small>
-                <small class="text-muted block">This global setting changes instructions and advancement validation, not existing chat snapshots. Select the appropriate profile when changing campaigns.</small>
+                <small class="text-muted block">Changes instructions and advancement validation for the selected settings scope. Existing chat snapshots are preserved.</small>
             </div>
 
             <!-- Simulation Fidelity & Token Budget Corridor -->
@@ -115,7 +124,7 @@
                     <div class="inline-drawer-icon fa-solid interactable down fa-circle-chevron-down" tabindex="0"></div>
                 </div>
                 <div class="inline-drawer-content" style="display: none;">
-                    <small>Shared quality instructions; the selected game profile is appended separately. Automatically matches the Fidelity Tier. Contains simulation laws and the <code>&#123;&#123;getvar::world_blackboard&#125;&#125;</code> macro.</small>
+                    <small>Quality instructions for the selected settings scope; the game profile is appended separately. Automatically matches the Fidelity Tier. Contains simulation laws and the <code>&#123;&#123;getvar::world_blackboard&#125;&#125;</code> macro.</small>
                     <small id="blackboard_custom_system_notice" class="text-muted block"></small>
                     <textarea id="blackboard_custom_prompt" class="text_pole textarea_compact blackboard_prompt_textarea" rows="12"></textarea>
                     <div class="marginTop5 flex-row gap5">
