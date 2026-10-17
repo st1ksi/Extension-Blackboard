@@ -27,8 +27,22 @@
                     <label>Minimum tokens<input type="number" min="100" max="100000" data-bb-control="blackboard_min_tokens"></label>
                     <label>Maximum tokens<input type="number" min="200" max="200000" data-bb-control="blackboard_max_tokens"></label>
                 </div>
-                <label class="bb-dash-select-row"><span>Game system</span><select data-bb-control="blackboard_game_system"><option value="universal">Universal</option><option value="dnd5e">D&amp;D 5e (2014 / 2024)</option></select></label>
-                <p class="bb-dash-hint">Changes apply to the selected settings scope; existing snapshots are preserved.</p>
+                <label class="bb-dash-select-row bb-dash-game-row"><span>Game system</span><select data-bb-control="blackboard_game_system"><option value="universal">Universal</option><option value="dnd5e">D&amp;D 5e (2014 / 2024)</option><option value="coc7e">Call of Cthulhu 7e</option><option value="pf2e">Pathfinder 2e Remaster</option><option value="gurps4e">GURPS 4e</option><option value="cyberpunk_red">Cyberpunk RED</option><option value="vtm5e">Vampire: The Masquerade V5</option><option value="swade">Savage Worlds (SWADE)</option></select></label>
+                <p id="bb-game-system-desc" class="bb-dash-hint" data-bb-text="blackboard_game_system_desc" aria-live="polite"></p>
+                <label class="bb-dash-select-row bb-dash-focus-row"><span>Simulation focus</span><select data-bb-control="blackboard_simulation_focus" aria-describedby="bb-focus-desc"><option value="general">General</option><option value="relationships_social">Relationships &amp; Social</option></select></label>
+                <p id="bb-focus-desc" class="bb-dash-hint" data-bb-text="blackboard_simulation_focus_desc"></p>
+                <details class="bb-dash-details bb-dash-campaign-direction">
+                    <summary>Campaign direction <span class="bb-dash-readonly">Optional</span></summary>
+                    <div class="bb-dash-details-body">
+                        <p class="bb-dash-hint">Separate instruction layers guide future undefined circumstances. Established facts and player choices stay intact. “No additional” leaves that direction to your other campaign instructions.</p>
+                        <label>World style<select data-bb-control="blackboard_campaign_style" aria-describedby="bb-world-style-desc"><option value="inherit">No additional style</option><option value="deductive">Deductive</option><option value="adventure">Adventure</option><option value="social_intrigue">Social intrigue</option><option value="exploration">Exploration</option><option value="survival">Survival</option><option value="slice_of_life">Slice of life</option></select></label>
+                        <p id="bb-world-style-desc" class="bb-dash-hint" data-bb-text="blackboard_campaign_style_desc"></p>
+                        <label>Tone<select data-bb-control="blackboard_campaign_tone" aria-describedby="bb-tone-desc"><option value="inherit">No additional tone</option><option value="balanced">Balanced</option><option value="grimdark">Grimdark</option><option value="hopeful">Hopeful</option></select></label>
+                        <p id="bb-tone-desc" class="bb-dash-hint" data-bb-text="blackboard_campaign_tone_desc"></p>
+                        <label>Narration<select data-bb-control="blackboard_narrative_style" aria-describedby="bb-narration-desc"><option value="inherit">No additional narration</option><option value="concise">Concise</option><option value="evocative">Evocative</option></select></label>
+                        <p id="bb-narration-desc" class="bb-dash-hint" data-bb-text="blackboard_narrative_style_desc"></p>
+                    </div>
+                </details>
             </section>
 
             <section class="bb-dash-section">
@@ -66,7 +80,7 @@
         </div>
 
         <div id="bb-pane-instructions" role="tabpanel" aria-labelledby="bb-tab-instructions" class="bb-dash-pane" hidden>
-            <p class="bb-dash-hint bb-dash-intro">Quality, game rules, execution and backgrounds are separate instruction sets. Save edited text using its own Save button.</p>
+            <p class="bb-dash-hint bb-dash-intro">Quality, game rules, campaign direction and execution are appended as separate instruction sets. Selecting a layer does not rewrite quality instructions. Backgrounds use their own prompt. Save edited text using its own Save button.</p>
             <details class="bb-dash-details bb-dash-editor" open>
                 <summary>Quality instructions</summary>
                 <div class="bb-dash-details-body">
@@ -91,8 +105,16 @@
                 <div class="bb-dash-details-body"><p class="bb-dash-hint" data-bb-text="blackboard_game_system_desc"></p><label class="bb-dash-sr" for="bb-profile-prompt">Game profile instructions</label><textarea id="bb-profile-prompt" data-bb-control="blackboard_game_profile_preview" rows="10" readonly></textarea></div>
             </details>
             <details class="bb-dash-details bb-dash-editor">
+                <summary>Campaign layers <span class="bb-dash-readonly">Read-only</span></summary>
+                <div class="bb-dash-details-body"><p class="bb-dash-hint">Active focus, world style, tone and narration. General with all directions set to “No additional” adds no campaign layer.</p><p class="bb-dash-hint" data-bb-text="blackboard_campaign_layers_desc" role="status" aria-live="polite"></p><label class="bb-dash-sr" for="bb-campaign-prompt">Campaign layer instructions</label><textarea id="bb-campaign-prompt" data-bb-control="blackboard_campaign_layers_preview" rows="10" readonly></textarea></div>
+            </details>
+            <details class="bb-dash-details bb-dash-editor">
                 <summary>Execution mode <span class="bb-dash-readonly">Read-only</span></summary>
                 <div class="bb-dash-details-body"><p class="bb-dash-hint">Appended after quality and game rules. Private requests also receive the task for their current stage.</p><label class="bb-dash-sr" for="bb-execution-prompt">Execution mode instructions</label><textarea id="bb-execution-prompt" data-bb-control="blackboard_turn_instructions" rows="10" readonly></textarea></div>
+            </details>
+            <details class="bb-dash-details bb-dash-editor">
+                <summary>Composed instructions <span class="bb-dash-readonly">Read-only</span></summary>
+                <div class="bb-dash-details-body"><p class="bb-dash-hint">Saved quality text followed by the game profile, active campaign layers and execution instructions. Board macros remain unexpanded; live board monitoring and background instructions are separate. Unsaved edits are not included.</p><label class="bb-dash-sr" for="bb-composed-prompt">Composed simulation instructions</label><textarea id="bb-composed-prompt" data-bb-control="blackboard_composed_prompt_preview" rows="14" readonly></textarea></div>
             </details>
         </div>
     </div>

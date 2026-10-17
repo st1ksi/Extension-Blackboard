@@ -4,6 +4,42 @@ This file records development history, not a claim that every version was publis
 as a GitHub Release. Entries summarize previous notes. Dates are omitted where no
 release date was established. Current behavior is described in [README.md](README.md).
 
+## 1.15.0 — 2026-10-18 — Campaign direction and game profiles
+
+- Add independent Relationships & Social focus for relevant dispositions, memories,
+  knowledge and directed relationships, with depth following the selected quality.
+- Add separate campaign styles (Deductive, Adventure, Social intrigue, Exploration,
+  Survival and Everyday life), Balanced/Grimdark/Hopeful tones and Concise/Evocative
+  narration. Choices guide undefined preparation without imposing player roles,
+  changing established facts, widening quality horizons or adding review stages.
+- Separate genre and prose direction from all supported quality sources. Keep
+  neutral quality, selected game mechanics, optional layers, execution and automatic
+  backgrounds independently composed; preserve exact recognized historical presets
+  and arbitrary user-edited sources. Expose the complete saved composition in the UI.
+- Add mechanics profiles for Call of Cthulhu 7e, Pathfinder 2e Remaster, GURPS 4e,
+  Cyberpunk RED, Vampire: The Masquerade V5 and Savage Worlds Adventure Edition,
+  alongside Universal and D&D. Profiles add no setting lore or character conversion.
+- Route all profiles through shared dice/source/choice rules. Only D&D has a built-in
+  advancement calculator; other systems retain campaign-owned advancement records.
+- Complete short Hero Point, Luck-cadence and Benny-pool procedures. Use recorded
+  source authority for NET action budgets and Willpower recovery instead of invented
+  tables. Default new CoC/GURPS campaigns to core scope while preserving explicit
+  introductory sources; disclose CoC's closed-world Luck house convention.
+- Remove compulsory faction alertness meters and invented influence levers from
+  neutral preparation. Preserve established values and applicable response plans.
+- Distinguish player-authored voluntary feelings/decisions from verified, bounded
+  involuntary rules effects in quality, Social and review instructions.
+- Check applicable positive style/tone preparation duties and narration conformance
+  in existing Private Turns stages. Presentation-only repairs cannot rewrite facts.
+- Align the supported earlier Ultra's current corridor, background boundaries,
+  Social resolution and D&D off-screen initiative while preserving its depth policy.
+- Store exact quality, game-profile, layer and review texts in private snapshot v2.
+  Pre-update paused work remains preserved/exportable but cannot resume under changed
+  instructions; finish it before updating or retain its original extension/settings.
+- Preserve per-chat settings, branch snapshots, public replies and independent
+  background operation. Development iterations were local; 1.15.0 is their first
+  public release. Automated checks do not establish actual model rule mastery.
+
 ## 1.14.0 — 2026-10-17 — Chat-specific settings
 
 - Choose Global defaults or This chat in both native settings and Control Panel.

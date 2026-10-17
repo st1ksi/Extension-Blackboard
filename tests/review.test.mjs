@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { DraftTurn, runPrivateTurn } from '../transaction.js';
 import { REVIEW_STAGES, makeAudit, validateAudit } from '../review.js';
 import { pass, repair, report, payload } from './review-fixtures.mjs';
+import { freezeCampaignLayers } from '../campaign-layers.js';
 
 const board = `[MISC #world_clock]
 - Time: Day 1, 00:32:12
@@ -186,8 +187,11 @@ test('repeated substantive failures stop after two repairs of the same focus', a
     assert.equal(checkpoint.candidateVersions.length, 3);
 });
 
-for (const phase of ['simulate', 'review', 'done', 'repair']) test(`v1 ${phase} checkpoints retain work but never reuse legacy broad approval`, async () => {
-    const checkpoint = { version: 1, draft: new DraftTurn(board), context: [], phase, step: 0,
+for (const phase of ['simulate', 'review', 'done', 'repair']) test(`v1 ${phase} schema migration with current instruction sources never reuses legacy broad approval`, async () => {
+    // This isolates transaction schema migration. Actual pre-separation source
+    // snapshots are rejected separately by campaign-private.test.mjs.
+    const draft = new DraftTurn(board); draft.campaignLayers = freezeCampaignLayers({});
+    const checkpoint = { version: 1, draft, context: [], phase, step: 0,
         candidate: phase === 'simulate' ? '' : 'Old candidate.', feedback: null, answer: null, pending: null,
         callIndex: 0, failedUpdate: false, inFlightTool: null, review: { verdict: 'pass', checked_blocks: [] }, maxRepairs: 2,
         stats: { requests: 1, reviews: 0, repairs: 0, inputChars: 0, outputChars: 0, started: Date.now() } };

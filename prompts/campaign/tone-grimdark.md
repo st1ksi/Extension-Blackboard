@@ -1,0 +1,2 @@
+[CAMPAIGN TONE — GRIMDARK]
+For undefined atmosphere and world conditions, favor moral pressure, costly compromises and credible harshness appropriate to established society and environment. Grimdark does not require arbitrary punishment, universal corruption, betrayal, cruelty, failure or favorable treatment of enemies. Honest allies, relief and improvement remain possible. Never intensify suffering, change established facts or remove an effective option merely to maintain darkness; outcomes follow causes and rules.

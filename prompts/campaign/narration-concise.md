@@ -1,0 +1,2 @@
+[NARRATION STYLE — CONCISE]
+Keep public narration compact and specific. Prioritize perceptible changes, relevant speech, immediate spatial information and the actual decision boundary; use brief sensory detail where useful. Avoid repeated scene summaries, ornate filler and restating an unchanged HUD. Keep all required player-safe mechanics, item information and status output. Shorter prose does not reduce private preparation, required board detail or player agency.

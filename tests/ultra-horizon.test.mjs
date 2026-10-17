@@ -16,10 +16,11 @@ test('saved pre-expansion v6 editor text resolves to current default while sourc
     assert.equal(selected.base,PROMPT_ULTRA);assert.equal(settings.customPrompt,prior);
     assert.match(selected.base,/6,000–21,000/);
     assert.doesNotMatch(selected.base,/3,500|distance-2 skeletons|###.*PRIVATE TURN/);
-    // This request changes detail horizon/budget only. Preserve every unrelated
-    // section, including time, determinism, agency, rules and progression.
+    // Preserve sections unchanged by expansion and the later prompt audit.
+    // Audit corrections to factions, agency and authorized development/recovery
+    // rolls have dedicated coverage; they no longer equal the older source.
     const section=(text,id)=>text.replace(/\r\n/g,'\n').match(new RegExp(`### ${id}\\.[\\s\\S]*?(?=\\n### \\d+\\.|$)`))[0].trim();
-    for(const id of [1,4,5,7,8,9,14,16,17,18,19,20,21]) assert.equal(section(selected.base,id),section(prior,id),`Section ${id} changed outside scope`);
+    for(const id of [1,4,5,7,8,14,18,19,20,21]) assert.equal(section(selected.base,id),section(prior,id),`Section ${id} changed outside scope`);
 });
 
 for(const mode of ['diff','full']) test(`${mode}: current size follows the working revision after updates and survives hydration`,()=>{

@@ -1,0 +1,22 @@
+{
+  "low": {
+    "campaignTone": "inherit",
+    "narrativeStyle": "evocative"
+  },
+  "mid": {
+    "campaignTone": "inherit",
+    "narrativeStyle": "evocative"
+  },
+  "high": {
+    "campaignTone": "inherit",
+    "narrativeStyle": "evocative"
+  },
+  "compact": {
+    "campaignTone": "grimdark",
+    "narrativeStyle": "evocative"
+  },
+  "ultra": {
+    "campaignTone": "grimdark",
+    "narrativeStyle": "evocative"
+  }
+}

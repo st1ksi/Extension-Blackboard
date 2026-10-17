@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as state from '../state.js';
+import { gameProfileText } from '../game-profile-text.js';
 import { browserEnvironment } from './browser-fixtures.mjs';
 import { reportDatabase } from './report-store-fixtures.mjs';
 
@@ -73,9 +74,11 @@ async function host(initialSettings = {}, environment = browserEnvironment({inde
     const cache = new Map();
     async function linker(specifier) {
         if (cache.has(specifier)) return cache.get(specifier);
-        if (['./campaign-settings.js', './board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js'].includes(specifier)) {
+        if (['./game-system-registry.js', './game-profile-text.js', './prompts/game-profile-bundles.js', './quality-source.js', './campaign-layers.js', './prompts/campaign-bundle.js', './campaign-settings.js', './board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js'].includes(specifier)) {
             const mod = new vm.SourceTextModule(await readFile(new URL('../' + specifier.slice(2), import.meta.url), 'utf8'), { context: sandbox, importModuleDynamically: dynamicImport });
-            cache.set(specifier, mod); await mod.link(linker); return mod;
+            // Let the entry module link the shared dependency graph atomically.
+            // Recursively calling link here races on modules reached by several imports.
+            cache.set(specifier, mod); return mod;
         }
         const obj = specifier === './state.js' ? state : stubs;
         const mod = new vm.SyntheticModule(Object.keys(obj), function () { for (const [k, v] of Object.entries(obj)) this.setExport(k, v); }, { context: sandbox });
@@ -175,6 +178,36 @@ test('queued private image is skipped if backgrounds are disabled before afterSa
 
 const sheet = '[ENTITIES #hero]\nHP 20/20; monk level 3.';
 
+for(const id of ['coc7e','pf2e','gurps4e','cyberpunk_red','vtm5e','swade']) test(`${id}: native selector reaches prompt, tools, progression and isolated chat preferences`,async()=>{
+    const h=await host({privateReview:true,privateReviewMode:'light',executionModeVersion:1,qualitySeparationVersion:1});
+    selectSettingsScope(h,'chat');
+    h.api.setBlackboard(privateBoard);
+    const original=h.api.getBlackboard();
+    h.ui('#blackboard_game_system').val(id).trigger('change');
+    assert.equal(h.ctx.chatMetadata.blackboard_settings.values.gameSystem,id);
+    assert.equal(h.ctx.extensionSettings.blackboard.gameSystem,'dnd5e');
+    assert.equal(h.api.getBlackboard(),original,'Choosing mechanics cannot convert the saved campaign.');
+    h.api.setBlackboard(original+'\n[MISC #character_progression]\nExisting campaign advancement.');
+    const tool=h.tools.get('UpdateBlackboard');
+    assert.doesNotMatch(tool.description,/totals are computed/);
+    assert.doesNotMatch(tool.parameters.properties.content.description,/base_xp|proficiency_bonus/);
+    assert.match(h.api.getBlackboardMonitorStatus(),/no automatic game-specific calculations/);
+    assert.ok(h.ui('#blackboard_game_profile_preview').val().includes('GAME PROFILE CONTRACT'));
+    assert.ok(h.prompts.get('blackboard_system_prompt').includes(h.ui('#blackboard_game_profile_preview').val().trim()));
+    await user(h,'Wait.');
+    const response=await update(h,'[MISC #character_progression]\nSystem-specific progress preserved.');
+    assert.equal(response.status,'success');
+    await completeReportTurn(h,'The system-specific turn is complete.');
+    assert.equal(h.getReport().gameSystem,id);
+    assert.equal(h.getReport().campaignLayers.gameProfile.id,id);
+    assert.equal(h.getReport().requests,3);
+    selectSettingsScope(h,'global');assert.equal(h.ui('#blackboard_game_system').val(),'dnd5e');
+    selectSettingsScope(h,'chat');assert.equal(h.ui('#blackboard_game_system').val(),id);
+    h.ui('#blackboard_game_system').val('unknown_future_profile').trigger('change');
+    assert.equal(h.ctx.chatMetadata.blackboard_settings.values.gameSystem,id);
+    assert.equal(h.ui('#blackboard_game_system').val(),id);
+});
+
 test('universal profile reaches live prompt, tool schema, monitor, updates and snapshots', async () => {
     const h = await host({gameSystem:'universal'});
     const prompt=h.prompts.get('blackboard_system_prompt');
@@ -256,10 +289,10 @@ test('selecting Ultra or resetting a saved v6 override gives the same v6 base an
     h.ui('#blackboard_fidelity_select').val('low').trigger('change');
     h.ui('#blackboard_fidelity_select').val('ultra').trigger('change');
     assert.equal(h.prompts.get('blackboard_system_prompt'),before);
-    assert.equal(h.ui('#blackboard_game_profile_preview').val(),bundles.compact.dnd5e);
+    assert.equal(h.ui('#blackboard_game_profile_preview').val(),gameProfileText({gameSystem:'dnd5e'},'compact'));
     h.ui('#blackboard_game_system').val('universal').trigger('change');
     assert.equal(h.ui('#blackboard_custom_prompt').val(),h.api.PROMPT_ULTRA);
-    assert.equal(h.ui('#blackboard_game_profile_preview').val(),bundles.compact.universal);
+    assert.equal(h.ui('#blackboard_game_profile_preview').val(),gameProfileText({gameSystem:'universal'},'compact'));
 });
 test('short populated board is expansion, never another cold start', async () => {
     const h = await host(); h.api.setBlackboard('[SCENE #room]\nSmall.');
@@ -802,6 +835,72 @@ async function switchCampaign(h, campaign) {
 function selectSettingsScope(h, scope) {
     h.ui('#blackboard_settings_scope').val(scope).trigger('change');
 }
+
+test('campaign directions update the real composed prompt without changing canon or the saved quality source', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1,autoSceneBackground:false});
+    const original = h.prompts.get('blackboard_system_prompt');
+    h.api.setBlackboard('[SCENE #hall]\nA mundane hall. Contents (COMPLETE): one chair.');
+    const board = h.api.getBlackboard();
+    const source = h.ui('#blackboard_custom_prompt').val();
+    h.ui('#blackboard_custom_prompt').val(source + '\nUnsaved quality draft.');
+    const choices = {simulation_focus:'relationships_social',campaign_style:'deductive',campaign_tone:'hopeful',narrative_style:'concise'};
+    for (const [name, value] of Object.entries(choices)) h.ui(`#blackboard_${name}`).val(value).trigger('change');
+    assert.match(h.prompts.get('blackboard_system_prompt'),/RELATIONSHIPS|Relationships/);
+    assert.doesNotMatch(h.prompts.get('blackboard_system_prompt'),/Grimdark describes its atmosphere/);
+    assert.equal(h.ctx.extensionSettings.blackboard.customPrompt,'');
+    assert.match(h.ui('#blackboard_custom_prompt').val(),/Unsaved quality draft/);
+    assert.equal(h.api.getBlackboard(),board);
+    assert.ok(h.ui('#blackboard_campaign_layers_preview').val().length > 100);
+    h.ui('#blackboard_simulation_focus').val('general').trigger('change');
+    for (const name of ['campaign_style','campaign_tone','narrative_style']) h.ui(`#blackboard_${name}`).val('inherit').trigger('change');
+    const pristine = await host({privateReview:false,executionModeVersion:1,autoSceneBackground:false,qualitySeparationVersion:1});
+    pristine.api.setBlackboard(board);
+    assert.equal(h.prompts.get('blackboard_system_prompt'),pristine.prompts.get('blackboard_system_prompt'));
+    assert.match(original,/CAMPAIGN TONE — GRIMDARK/, 'The former built-in tone becomes a visible independent selection.');
+});
+
+test('campaign layers belong to the selected settings scope and survive serialized reload and independent branches', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1});
+    selectSettingsScope(h,'chat');
+    h.ui('#blackboard_simulation_focus').val('relationships_social').trigger('change');
+    h.ui('#blackboard_campaign_style').val('exploration').trigger('change');
+    h.ui('#blackboard_campaign_tone').val('balanced').trigger('change');
+    h.ui('#blackboard_narrative_style').val('evocative').trigger('change');
+    const saved = JSON.parse(JSON.stringify(h.ctx.chatMetadata));
+    const reloaded = await host({privateReview:false,executionModeVersion:1},undefined,saved);
+    assert.equal(reloaded.ui('#blackboard_simulation_focus').val(),'relationships_social');
+    assert.equal(reloaded.ui('#blackboard_campaign_style').val(),'exploration');
+    assert.equal(reloaded.ui('#blackboard_campaign_tone').val(),'balanced');
+    assert.equal(reloaded.ui('#blackboard_narrative_style').val(),'evocative');
+    assert.notEqual(reloaded.ctx.extensionSettings.blackboard.simulationFocus,'relationships_social', 'Reading local preferences must not copy them into untouched global settings.');
+    const original = campaignState(reloaded);
+    await switchCampaign(reloaded,{chatId:'Direction branch',chat:[],chatMetadata:structuredClone(saved)});
+    reloaded.ui('#blackboard_campaign_style').val('survival').trigger('change');
+    await switchCampaign(reloaded,original);
+    assert.equal(reloaded.ui('#blackboard_campaign_style').val(),'exploration');
+    selectSettingsScope(reloaded,'global');
+    assert.equal(reloaded.ui('#blackboard_simulation_focus').val(),'general');
+    assert.equal(reloaded.ui('#blackboard_campaign_style').val(),'inherit');
+    selectSettingsScope(reloaded,'chat');
+    assert.equal(reloaded.ui('#blackboard_simulation_focus').val(),'relationships_social');
+    assert.equal(reloaded.ui('#blackboard_campaign_style').val(),'exploration');
+});
+
+test('campaign supplements stay out of backgrounds-only mode and private reports retain their exact instructions', async () => {
+    const settings = {privateReview:true,privateReviewMode:'light',executionModeVersion:1,simulationFocus:'relationships_social',campaignStyle:'adventure',campaignTone:'hopeful',narrativeStyle:'concise'};
+    const h = await host(settings);
+    await completeReportTurn(h,'The reviewed social scene is complete.');
+    const report = h.getReport();
+    assert.ok(report.campaignLayers.instructions.length > 100);
+    assert.equal(report.reviews,1); assert.equal(report.repairs,1);
+    assert.equal(report.requests,3);
+    assert.equal(JSON.stringify(h.ctx.chatMetadata).includes('reviewCriteria'),false);
+    h.ui('#blackboard_function_tool').prop('checked',false).trigger('change');
+    assert.equal(h.prompts.get('blackboard_system_prompt'),'');
+    assert.doesNotMatch(h.prompts.get('blackboard_bg_prompt'),/CAMPAIGN STYLE|RELATIONSHIPS|CAMPAIGN TONE/);
+    assert.equal(h.tools.has('SetSceneBackground'),true);
+    assert.equal(h.tools.has('UpdateBlackboard'),false);
+});
 
 test('campaign opt-in copies preferences while leaving global settings, canon and rollback snapshots intact', async () => {
     const h = await host({privateReview:false,executionModeVersion:1});

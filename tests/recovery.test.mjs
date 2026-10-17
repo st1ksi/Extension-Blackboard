@@ -14,9 +14,9 @@ function harness() {
 }
 
 test('checkpoint is separate from chat, scoped to account/character/chat, and contains no connection secrets',async()=>{
-    const h=harness();h.ctx.chatCompletionSettings.reverse_proxy_password='secret';
+    const h=harness(),credential='recovery-test-password-8cd6143a';h.ctx.chatCompletionSettings.reverse_proxy_password=credential;
     const before=structuredClone(h.ctx);const record=await h.create();
-    assert.deepEqual(h.ctx,before);assert.ok(!JSON.stringify(record).includes('secret'));
+    assert.deepEqual(h.ctx,before);assert.ok(!JSON.stringify(record).includes(credential));
     assert.equal(record.key,JSON.stringify(['user','hero.png','chat']));
     assert.deepEqual(await h.api.load(record.key),record);
     h.ctx.chatId='branch';await assert.rejects(h.api.validate(record,h.ctx),/another chat/);

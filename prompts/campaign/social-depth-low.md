@@ -1,0 +1,1 @@
+SOCIAL DEPTH — LOW: Within required next-contact preparation, retain each relevant actor's main disposition, present concern and the memory or relationship basis needed to resolve that contact. Combine these in terse existing fields. No wider social-network expansion or biography quota. Preserve all established consequential facts.

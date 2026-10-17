@@ -4,6 +4,7 @@ import { DraftTurn, runPrivateTurn } from '../transaction.js';
 import { makeAudit, quoteMatches, validateAudit } from '../review.js';
 import { captureIssues, pendingIssues } from '../issue-ledger.js';
 import { payload, pass, report, citations } from './review-fixtures.mjs';
+import { freezeCampaignLayers } from '../campaign-layers.js';
 
 const original = `[MISC #world_clock]
 Time: Day 1, 01:18:19
@@ -150,8 +151,9 @@ test('review uses its own system role and retains campaign evidence and attached
     assert.equal(result.stats.reviews,4);
 });
 
-test('v2 paused review salvages allegations from rejected reports and reaudit cannot forget them',async()=>{
+test('v2 schema migration with current instruction sources salvages rejected allegations for reaudit',async()=>{
     const d=new DraftTurn(original);d.update({base_revision:0,content:advanced});
+    d.campaignLayers=freezeCampaignLayers({});
     const p=packet(d),oldReport=report(p,'repair');oldReport.issues=[issue];oldReport.checks[0].evidence=[];
     const checkpoint={version:2,draft:d,context:[],phase:'review',step:0,candidate:p.candidate,candidateId:1,candidateVersions:[{id:1,revision:1,text:p.candidate}],
         auditIndex:2,auditLog:[{stage:'time',revision:1,candidate_id:1,status:'invalid_report',raw:encode(oldReport),targets:p.audit.targets}],

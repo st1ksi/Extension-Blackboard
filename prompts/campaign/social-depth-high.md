@@ -1,0 +1,1 @@
+SOCIAL DEPTH — HIGH: Deepen immediate participants' distinct memories, relevant motives and directed ties. Keep the tier's structured distance-2 approaches and relevant distance-3 agendas at their required lower resolution. Preserve viable social alternatives and information routes without promoting every named contact.

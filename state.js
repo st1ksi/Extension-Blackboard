@@ -1,4 +1,5 @@
 // Pure state operations. No DOM, globals, network, or mutations of caller data.
+import { hasCalculatedProgression } from './game-system-registry.js';
 export const PROGRESSION_KEY = 'misc #character_progression';
 export const XP_THRESHOLDS = Object.freeze([0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000]);
 const CATEGORIES = new Set(['SCENE', 'ENTITIES', 'NARRATIVE', 'LORE', 'MISC']);
@@ -145,7 +146,7 @@ export function normalizeProgression(input, previous = null) {
 }
 
 export function readProgression(text, { gameSystem = 'dnd5e' } = {}) {
-    if (gameSystem === 'universal') return null; // Campaign-owned format; no D&D arithmetic.
+    if (!hasCalculatedProgression(gameSystem)) return null; // This profile owns its format; no D&D arithmetic.
     const block = parseBlocks(text).blocks.find(b => b.blockKey === PROGRESSION_KEY);
     if (!block) return null;
     const body = block.content.trim().replace(/^```json\s*\n([\s\S]*?)\n```$/i, '$1');
@@ -166,7 +167,7 @@ function rawProgression(parsed) {
 export function validateBoard(text, previousText = null, { model = false, gameSystem = 'dnd5e' } = {}) {
     const parsed = uniqueBlocks(parseBlocks(text));
     const prevParsed = parseBlocks(previousText || '');
-    if (gameSystem === 'universal') {
+    if (!hasCalculatedProgression(gameSystem)) {
         if (model && prevParsed.blocks.some(b => b.blockKey === PROGRESSION_KEY) && !parsed.blocks.some(b => b.blockKey === PROGRESSION_KEY)) {
             throw new Error('The progression record cannot be deleted by the model. Use the inspector for an explicit reset.');
         }

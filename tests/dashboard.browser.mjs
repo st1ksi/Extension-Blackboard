@@ -531,6 +531,8 @@ try {
     await page.locator('[data-board-close]').click();
     await checkInspector(page, panel, origin);
     await checkCampaignSettings(page, origin);
+    await checkCampaignLayers(page, origin);
+    await checkAdditionalGameSystems(page, origin);
     await checkPrivateReportExport(page);
     assert.deepEqual(errors, []);
     console.log('Dashboard browser checks passed: real handlers, shared state/drafts, tools/prompts, actions, keyboard, desktop & mobile.');
@@ -633,6 +635,294 @@ async function checkCampaignSettings(parent, origin) {
         assert.deepEqual(errors, []);
         console.log('Campaign settings browser checks passed: real controls, isolated drafts/tools, serialized metadata reload, branches, retained/reset defaults and mobile layout.');
     } finally { await browserContext.close(); }
+}
+
+async function checkCampaignLayers(parent, origin) {
+    const domText = text => text.replace(/\r\n/g,'\n'); // HTML textarea values normalize CRLF.
+    const browserContext = await parent.context().browser().newContext();
+    const page = await browserContext.newPage();
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.route('**/*', route => route.request().url().startsWith(origin) ? route.continue() : route.abort());
+    try {
+        await page.setViewportSize({width:1440,height:1000});
+        await page.goto(origin);
+        await page.waitForSelector('#blackboard_open_dashboard');
+        await page.locator('#blackboard_open_dashboard').click();
+        const panel = page.locator('#blackboard-dashboard');
+        const control = name => panel.locator(`[data-bb-control="blackboard_${name}"]`);
+        const values = () => page.evaluate(() => context.chatMetadata.blackboard_settings.values);
+        const spec = [
+            ['simulation_focus','simulationFocus',['general','relationships_social']],
+            ['campaign_style','campaignStyle',['inherit','deductive','adventure','social_intrigue','exploration','survival','slice_of_life']],
+            ['campaign_tone','campaignTone',['inherit','balanced','grimdark','hopeful']],
+            ['narrative_style','narrativeStyle',['inherit','concise','evocative']],
+        ];
+        const neutral = Object.fromEntries(spec.map(([,field,options]) => [field,options[0]]));
+        const readControls = async () => Object.fromEntries(await Promise.all(spec.map(async ([name,field]) => [field,await control(name).inputValue()])));
+        const migrated = { ...neutral, campaignTone:'grimdark', narrativeStyle:'evocative' };
+        assert.deepEqual(await readControls(), migrated, 'Legacy Ultra direction migrates into visible, independent choices.');
+        for (const [name,,options] of spec) {
+            assert.deepEqual(await control(name).locator('option').evaluateAll(list => list.map(e=>e.value)), options);
+            assert.deepEqual(await page.locator(`#blackboard_${name} option`).evaluateAll(list => list.map(e=>e.value)), options,
+                'Native and custom selectors have identical choices.');
+        }
+        await panel.getByRole('tab', {name:'Instructions',exact:true}).click();
+        const defaultPreview = await control('campaign_layers_preview').inputValue();
+        assert.equal(defaultPreview,await page.locator('#blackboard_campaign_layers_preview').inputValue());
+        assert.equal(await control('campaign_layers_preview').getAttribute('readonly'), '');
+        await panel.getByRole('tab', {name:'Settings',exact:true}).click();
+        await panel.locator('.bb-dash-campaign-direction > summary').click();
+        for (const [name,,options] of spec) await control(name).selectOption(options[0]);
+        const defaults = await readControls();
+        assert.deepEqual(defaults,neutral,'Every campaign direction can be explicitly omitted.');
+        const initialPrompt = await page.evaluate(() => injected.get('blackboard_system_prompt'));
+        const originalQuality = await control('custom_prompt').inputValue();
+        const initialComposed = await control('composed_prompt_preview').inputValue();
+        assert.equal(initialComposed,await page.locator('#blackboard_composed_prompt_preview').inputValue());
+        assert.equal(await control('composed_prompt_preview').getAttribute('readonly'),'');
+        for (const [name,field,options] of spec) {
+            for (const option of options) {
+                await control(name).selectOption(option);
+                assert.equal(await page.evaluate(field => context.extensionSettings.blackboard[field],field),option,
+                    `${field} selection must reach saved settings.`);
+                assert.equal(await control('custom_prompt').inputValue(),originalQuality,
+                    'Selecting a layer must not rewrite the visible quality source.');
+            }
+            await control(name).selectOption(options[0]);
+        }
+        assert.equal(await page.evaluate(() => injected.get('blackboard_system_prompt')), initialPrompt,
+            'Returning all selectors to default retains the exact original composed instructions.');
+        assert.equal(await control('composed_prompt_preview').inputValue(),initialComposed);
+
+        // Exercise every built-in tier with separate social, style, tone and narration layers.
+        // Compare the real rendered previews with the entry point's saved composer, not a UI-only mock.
+        for (const tier of ['low','mid','high','ultra']) {
+            await panel.locator(`[data-bb-tier="${tier}"]`).click();
+            const source = await control('custom_prompt').inputValue();
+            assert.ok(source.length > 300,`${tier} exposes its complete quality source.`);
+            for (const [name,,options] of spec) await control(name).selectOption(options[0]);
+            const withoutLayers = await control('composed_prompt_preview').inputValue();
+            assert.ok(withoutLayers.startsWith(source.trim()+'\n\n---\n\n'));
+            for (const [name,,options] of spec) {
+                await control(name).selectOption(options.at(-1));
+                assert.equal(await control('custom_prompt').inputValue(),source,
+                    `${tier}: ${name} must append instructions without modifying quality.`);
+            }
+            const actual = await page.evaluate(async prefix => {
+                const {composeGamePrompt} = await import(prefix+'game-profiles.js');
+                const {executionInstructions} = await import(prefix+'turn-instructions.js');
+                const selected=context.extensionSettings.blackboard;
+                const result=composeGamePrompt(selected,bbApi.FIDELITY_PRESETS);
+                return {base:result.base, raw:result.rawBase,profile:result.profile,campaign:result.campaignLayers.instructions,
+                    execution:executionInstructions(selected),full:result.text+'\n\n'+executionInstructions(selected),
+                    injected:injected.get('blackboard_system_prompt'),monitor:bbApi.getBlackboardMonitorStatus()};
+            },prefix);
+            const composed = await control('composed_prompt_preview').inputValue();
+            assert.equal(source,domText(actual.base),`${tier}: shown quality is the exact composed quality.`);
+            assert.equal(actual.raw,actual.base,`${tier}: no hidden quality adaptation remains.`);
+            assert.equal(composed,domText(actual.full),`${tier}: whole preview matches the actual saved composition.`);
+            assert.equal(composed,await page.locator('#blackboard_composed_prompt_preview').inputValue());
+            for (const [label,text] of Object.entries({quality:source.trim(),profile:actual.profile.trim(),campaign:actual.campaign.trim(),execution:actual.execution.trim()})) {
+                assert.ok(text.length > 0,`${tier}: ${label} exists.`);
+                assert.equal(composed.split(domText(text)).length-1,1,`${tier}: ${label} is appended exactly once.`);
+            }
+            // The dynamic monitor is injected immediately after the board macro. Remove just that monitor for comparison.
+            assert.equal(domText(actual.injected.replace(actual.monitor,'')),composed,
+                `${tier}: injected prompt matches the preview apart from its separate live monitor.`);
+            assert.notEqual(composed,withoutLayers,`${tier}: active layers change composed instructions.`);
+        }
+        await control('private_review').uncheck();
+        for (const mode of ['standard','light','heavy']) {
+            if (mode !== 'standard') {
+                await control('private_review').check();
+                await control('private_mode').selectOption(mode);
+            }
+            const expected = await page.evaluate(async prefix => {
+                const {composeGamePrompt}=await import(prefix+'game-profiles.js');
+                const {executionInstructions}=await import(prefix+'turn-instructions.js');
+                const selected=context.extensionSettings.blackboard;
+                return composeGamePrompt(selected,bbApi.FIDELITY_PRESETS).text+'\n\n'+executionInstructions(selected);
+            },prefix);
+            assert.equal(await control('composed_prompt_preview').inputValue(),domText(expected),
+                `${mode}: changing execution mode immediately updates the composed preview.`);
+            assert.equal(await page.locator('#blackboard_composed_prompt_preview').inputValue(),domText(expected));
+        }
+        for (const [name,,options] of spec) await control(name).selectOption(options[0]);
+
+        await control('settings_scope').selectOption('chat');
+        await page.evaluate(() => bbApi.setBlackboard('[SCENE #canon]\n- An established ordinary neighborhood.'));
+        const canon = await page.evaluate(() => bbApi.getBlackboard());
+        const localDirection = {simulationFocus:'relationships_social',campaignStyle:'adventure',campaignTone:'grimdark',narrativeStyle:'concise'};
+        for (const [name,field] of spec) await control(name).selectOption(localDirection[field]);
+        assert.deepEqual(await readControls(), localDirection);
+        for (const [,field] of spec) assert.equal((await values())[field],localDirection[field]);
+        assert.equal(await page.evaluate(() => bbApi.getBlackboard()),canon, 'Changing direction never rewrites established board facts.');
+        await panel.getByRole('tab', {name:'Instructions',exact:true}).click();
+        const presetSocialPreview = await control('campaign_layers_preview').inputValue();
+        await control('custom_prompt').fill('CAMPAIGN QUALITY SAVED');
+        await panel.getByRole('button', {name:'Save quality prompt',exact:true}).click();
+        const customComposition = await page.evaluate(async prefix => {
+            const {composeGamePrompt}=await import(prefix+'game-profiles.js');
+            const result=composeGamePrompt(context.chatMetadata.blackboard_settings.values,bbApi.FIDELITY_PRESETS);
+            return {base:result.base,profile:result.profile,layers:result.campaignLayers.instructions,tier:result.campaignLayers.snapshot.tier};
+        },prefix);
+        assert.equal(customComposition.tier,'custom','Saving an arbitrary quality source selects the Custom social adapter.');
+        assert.equal(await control('custom_prompt').inputValue(),'CAMPAIGN QUALITY SAVED',
+            'Saving a custom quality source keeps its exact visible text.');
+        assert.equal(customComposition.base,'CAMPAIGN QUALITY SAVED');
+        assert.equal(await control('campaign_layers_preview').inputValue(),domText(customComposition.layers),
+            'Saving quality immediately refreshes the layer preview to the actual Custom adapter.');
+        assert.notEqual(await control('campaign_layers_preview').inputValue(),presetSocialPreview,
+            'The previous tier-specific Social adapter must not remain displayed after saving custom quality.');
+        assert.equal(await control('game_profile_preview').inputValue(),domText(customComposition.profile),
+            'Saving quality refreshes the game-profile preview too.');
+        await control('custom_prompt').fill('CAMPAIGN QUALITY UNSAVED');
+        const savedPrompt = (await values()).customPrompt;
+        await panel.getByRole('tab', {name:'Settings',exact:true}).click();
+        await control('campaign_style').selectOption('deductive');
+        localDirection.campaignStyle = 'deductive';
+        assert.equal(await control('custom_prompt').inputValue(),'CAMPAIGN QUALITY UNSAVED',
+            'Changing a campaign layer preserves the unsaved quality draft.');
+        assert.equal((await values()).customPrompt,savedPrompt,'Campaign selections do not save a quality draft.');
+        assert.ok((await control('composed_prompt_preview').inputValue()).startsWith(savedPrompt),
+            'Composition preview uses the saved quality prompt while an unsaved draft is visible.');
+        assert.doesNotMatch(await control('composed_prompt_preview').inputValue(),/CAMPAIGN QUALITY UNSAVED/);
+        await page.evaluate(() => $('#blackboard_campaign_tone').val('hopeful').trigger('change'));
+        localDirection.campaignTone = 'hopeful';
+        assert.equal(await control('campaign_tone').inputValue(),'hopeful','Native edits synchronize the custom selector.');
+        const preview = await control('campaign_layers_preview').inputValue();
+        assert.ok(preview.trim(), 'Selected campaign layers have an instruction preview.');
+        assert.notEqual(preview,defaultPreview,'An active layer replaces the empty-state preview.');
+        assert.equal(preview,await page.locator('#blackboard_campaign_layers_preview').inputValue());
+        assert.ok(await page.evaluate(text => injected.get('blackboard_system_prompt').includes(text),preview),
+            'The preview matches the actual injected campaign layers.');
+        assert.match(await panel.locator('[data-bb-text="blackboard_custom_system_notice"]').textContent(),/custom|manually|verbatim/i,
+            'Arbitrary custom quality sources receive a visible conflict notice.');
+        assert.equal((await control('composed_prompt_preview').inputValue()).split(savedPrompt).length-1,1,
+            'The arbitrary saved quality source remains present exactly once.');
+        await control('settings_scope').selectOption('global');
+        assert.deepEqual(await readControls(),defaults,'Global values are isolated from local direction.');
+        const globalDirection = {simulationFocus:'general',campaignStyle:'exploration',campaignTone:'balanced',narrativeStyle:'evocative'};
+        for (const [name,field] of spec) await control(name).selectOption(globalDirection[field]);
+        await control('settings_scope').selectOption('chat');
+        assert.deepEqual(await readControls(),localDirection,'Re-enabling local preferences restores all campaign layers.');
+        assert.equal(await control('custom_prompt').inputValue(),'CAMPAIGN QUALITY UNSAVED');
+
+        await page.evaluate(async () => {
+            window.originalCampaign={chatId:context.chatId,chatMetadata:context.chatMetadata,chat:context.chat};
+            context.chatId += ' - Direction branch'; context.chatMetadata=structuredClone(context.chatMetadata); context.chat=structuredClone(context.chat);
+            await emit('CHAT_CHANGED');
+        });
+        assert.deepEqual(await readControls(),localDirection,'A branch inherits its current campaign layers.');
+        for (const [name,,options] of spec) await control(name).selectOption(options[0]);
+        await page.evaluate(async () => { Object.assign(context,originalCampaign); await emit('CHAT_CHANGED'); });
+        assert.deepEqual(await readControls(),localDirection,'Branch changes do not mutate original campaign preferences.');
+
+        const saved = await page.evaluate(() => ({chatId:context.chatId,chatMetadata:context.chatMetadata,
+            chat:context.chat,extensionSettings:context.extensionSettings}));
+        await page.addInitScript(saved => {
+            window.addEventListener('DOMContentLoaded', () => { Object.assign(window.context,saved); }, {once:true});
+        },saved);
+        await page.reload();
+        await page.waitForSelector('#blackboard_open_dashboard');
+        await page.locator('#blackboard_open_dashboard').click();
+        assert.deepEqual(await readControls(),localDirection,'All four campaign selectors persist after a serialized host reload.');
+        assert.equal(await control('custom_prompt').inputValue(),savedPrompt,'Unsaved quality edits do not survive a reload.');
+        assert.equal(await control('campaign_layers_preview').inputValue(),await page.locator('#blackboard_campaign_layers_preview').inputValue());
+        await panel.locator('.bb-dash-campaign-direction > summary').click();
+        await control('campaign_style').scrollIntoViewIfNeeded();
+        if (output) await page.screenshot({animations:'disabled',path:resolve(output,'campaign-direction-desktop.png')});
+        await page.setViewportSize({width:320,height:780});
+        await control('simulation_focus').scrollIntoViewIfNeeded();
+        assert.ok(await panel.evaluate(p => [p,...p.querySelectorAll('.bb-dash-scroll,.bb-dash-pane:not([hidden]),.bb-dash-campaign-direction,.bb-dash-campaign-direction select,.bb-dash-focus-row')]
+            .every(e => e.scrollWidth <= e.clientWidth+1)), 'Expanded campaign controls fit a 320px viewport.');
+        if (output) await page.screenshot({animations:'disabled',path:resolve(output,'campaign-direction-mobile-320.png')});
+        await panel.getByRole('tab', {name:'Instructions',exact:true}).click();
+        await panel.locator('.bb-dash-editor > summary').filter({hasText:'Campaign layers'}).click();
+        await control('campaign_layers_preview').scrollIntoViewIfNeeded();
+        if (output) await page.screenshot({animations:'disabled',path:resolve(output,'campaign-layers-preview-mobile-320.png')});
+        await panel.locator('.bb-dash-editor > summary').filter({hasText:'Composed instructions'}).click();
+        await control('composed_prompt_preview').scrollIntoViewIfNeeded();
+        assert.ok(await panel.evaluate(p => [p,...p.querySelectorAll('.bb-dash-scroll,.bb-dash-pane:not([hidden]),.bb-dash-editor,textarea')]
+            .every(e => e.scrollWidth <= e.clientWidth+1)), 'The full composition preview fits a 320px viewport.');
+        if (output) await page.screenshot({animations:'disabled',path:resolve(output,'composed-preview-mobile-320.png')});
+        const reset = panel.getByRole('button', {name:'Copy global defaults to this chat',exact:true});
+        page.once('dialog',dialog=>dialog.accept());
+        await reset.click();
+        assert.deepEqual(await readControls(),globalDirection,'Copying global defaults resets every campaign preference together.');
+        assert.deepEqual(errors,[]);
+        console.log('Campaign layers browser checks passed: explicit legacy migration, all four immutable quality sources, exact whole composition, no duplicate layers, native/custom previews, scope/draft isolation, branches, reload, reset and 320px layout.');
+    } finally { await browserContext.close(); }
+}
+
+async function checkAdditionalGameSystems(parent,origin) {
+    const context=await parent.context().browser().newContext();
+    const page=await context.newPage(),errors=[];
+    page.on('pageerror',error=>errors.push(error.message));
+    await page.route('**/*',route=>route.request().url().startsWith(origin)?route.continue():route.abort());
+    try {
+        await page.setViewportSize({width:1440,height:1000});
+        await page.goto(origin);await page.waitForSelector('#blackboard_open_dashboard');
+        await page.locator('#blackboard_open_dashboard').click();
+        const panel=page.locator('#blackboard-dashboard');
+        const control=name=>panel.locator(`[data-bb-control="blackboard_${name}"]`);
+        await control('settings_scope').selectOption('chat');
+        await control('simulation_focus').selectOption('relationships_social');
+        const ids=['universal','dnd5e','coc7e','pf2e','gurps4e','cyberpunk_red','vtm5e','swade'];
+        assert.deepEqual(await control('game_system').locator('option').evaluateAll(nodes=>nodes.map(n=>n.value)),ids);
+        assert.deepEqual(await page.locator('#blackboard_game_system option').evaluateAll(nodes=>nodes.map(n=>n.value)),ids);
+        for(const id of ids) {
+            const core=await control('custom_prompt').inputValue();
+            await control('game_system').selectOption(id);
+            assert.equal(await page.locator('#blackboard_game_system').inputValue(),id);
+            assert.equal(await page.evaluate(()=>context.chatMetadata.blackboard_settings.values.gameSystem),id);
+            assert.equal(await control('custom_prompt').inputValue(),core);
+            assert.equal(await page.evaluate(()=>context.extensionSettings.blackboard.gameSystem),'dnd5e');
+            const matches=await page.evaluate(async({prefix,id})=>{
+                const {composeGamePrompt,GAME_SYSTEMS}=await import(prefix+'game-profiles.js');
+                const settings=context.chatMetadata.blackboard_settings.values;
+                const result=composeGamePrompt(settings,bbApi.FIDELITY_PRESETS);
+                const normalize=text=>text.replace(/\r\n/g,'\n');
+                return {
+                    frozen:result.campaignLayers.snapshot.gameProfile.id,
+                    profile:normalize(result.profile),
+                    description:GAME_SYSTEMS[id].description,
+                    tool:registered.get('UpdateBlackboard').parameters.properties.content.description,
+                };
+            },{prefix,id});
+            assert.equal(matches.frozen,id);
+            assert.equal((await control('game_profile_preview').inputValue()).trim(),matches.profile.trim());
+            assert.equal(await page.locator('#blackboard_game_system_desc').textContent(),matches.description);
+            assert.equal(await panel.locator('#bb-game-system-desc').textContent(),matches.description);
+            assert.equal(await panel.locator('#bb-game-system-desc').isVisible(),true);
+            if(id==='coc7e')assert.match(matches.description,/closed-world Luck house policy/);
+            if(id!=='dnd5e')assert.doesNotMatch(matches.tool,/base_xp|proficiency_bonus/);
+        }
+        await page.evaluate(()=>$('#blackboard_game_system').val('vtm5e').trigger('change'));
+        assert.equal(await control('game_system').inputValue(),'vtm5e');
+        const saved=await page.evaluate(()=>({chatId:context.chatId,chatMetadata:context.chatMetadata,chat:context.chat,extensionSettings:context.extensionSettings}));
+        await page.addInitScript(saved=>window.addEventListener('DOMContentLoaded',()=>Object.assign(window.context,saved),{once:true}),saved);
+        await page.reload();await page.waitForSelector('#blackboard_open_dashboard');await page.locator('#blackboard_open_dashboard').click();
+        assert.equal(await control('game_system').inputValue(),'vtm5e');
+        assert.equal(await control('simulation_focus').inputValue(),'relationships_social');
+        await page.evaluate(async()=>{
+            window.systemCampaign={chatId:context.chatId,chatMetadata:context.chatMetadata,chat:context.chat};
+            context.chatId+=' - Branch';context.chatMetadata=structuredClone(context.chatMetadata);context.chat=[];await emit('CHAT_CHANGED');
+        });
+        await control('game_system').selectOption('pf2e');
+        await page.evaluate(async()=>{Object.assign(context,systemCampaign);await emit('CHAT_CHANGED');});
+        assert.equal(await control('game_system').inputValue(),'vtm5e');
+        await control('game_system').selectOption('swade');
+        await control('game_system').scrollIntoViewIfNeeded();
+        if(output)await page.screenshot({animations:'disabled',path:resolve(output,'game-profiles-desktop.png')});
+        await page.setViewportSize({width:320,height:780});
+        await control('game_system').scrollIntoViewIfNeeded();
+        assert.ok(await panel.evaluate(p=>[p,...p.querySelectorAll('.bb-dash-scroll,.bb-dash-pane:not([hidden])')].every(e=>e.scrollWidth<=e.clientWidth+1)));
+        if(output)await page.screenshot({animations:'disabled',path:resolve(output,'game-profiles-mobile-320.png')});
+        assert.deepEqual(errors,[]);
+        console.log('Additional game profile browser checks passed: eight selectors, source/profile/preview parity, native/custom sync, local scope, reload, branch and 320px layout.');
+    } finally {await context.close();}
 }
 
 async function checkPrivateReportExport(page) {

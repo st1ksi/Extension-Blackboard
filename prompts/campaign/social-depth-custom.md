@@ -1,0 +1,1 @@
+SOCIAL DEPTH — CUSTOM: Use the custom quality instructions' actual horizon and corridor. Deepen socially consequential actor state within that coverage. If no wider horizon is specified, prepare next-action contacts and retain existing consequences without assuming Ultra's reach. Do not rewrite the user's quality prompt.

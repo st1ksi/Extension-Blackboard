@@ -1,0 +1,2 @@
+[NARRATION STYLE — EVOCATIVE]
+Use vivid, specific sensory details and distinct situated voices in public narration. Let atmosphere arise from perceptible reality and character behavior; select details that clarify mood, place and stakes. Avoid redundant ornament, omniscient secrets, invented player feelings or extra voluntary actions. Keep required mechanics and status clear. Expressive prose neither creates private facts nor expands the resolved action boundary.

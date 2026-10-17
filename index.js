@@ -2,11 +2,13 @@ import { SYSTEM_BUNDLES } from './prompts/system-bundles.js';
 import { DEFAULT_BACKGROUND_SYSTEM_PROMPT, backgroundInstructions } from './background-instructions.js';
 export { DEFAULT_BACKGROUND_SYSTEM_PROMPT };
 import { installPrivateRunner, downloadPrivateReport, clearPrivateReport } from './private-runner.js';
-import { GAME_SYSTEMS, gameSystem, composeGamePrompt, resolveQualityPrompt, GENERIC_PROGRESSION_TOOL } from './game-profiles.js';
+import { GAME_SYSTEMS, gameSystem, hasCalculatedProgression, composeGamePrompt, resolveQualityPrompt, GENERIC_PROGRESSION_TOOL } from './game-profiles.js';
 import { executionInstructions, migrateExecutionSettings } from './turn-instructions.js';
 import { normalizePrivateReviewMode } from './private-modes.js';
 import { privateTurnCapabilities } from './capabilities.js';
 import { createCampaignSettings } from './campaign-settings.js';
+import { normalizeCampaignLayers, CAMPAIGN_LAYER_OPTIONS } from './campaign-layers.js';
+import { migrateQualitySeparation, QUALITY_SEPARATION_VERSION } from './quality-source.js';
 import { installSettingsDashboard } from './dashboard.js';
 import { installBoardInspector } from './inspector.js';
 import { createPanelWorkspace } from './panel-workspace.js';
@@ -93,6 +95,11 @@ const defaultSettings = Object.freeze({
     privateReviewFormat: 'diff',
     simulationFidelity: 'mid',
     gameSystem: 'dnd5e',
+    simulationFocus: 'general',
+    campaignStyle: 'inherit',
+    campaignTone: 'inherit',
+    narrativeStyle: 'inherit',
+    qualitySeparationVersion: QUALITY_SEPARATION_VERSION,
     targetMinTokens: 2000,
     targetMaxTokens: 4000,
     customPrompt: '',
@@ -102,8 +109,14 @@ const defaultSettings = Object.freeze({
 
 const campaignSettings = createCampaignSettings({
     getContext: () => SillyTavern.getContext(), defaults: defaultSettings,
-    migrate: migrateExecutionSettings,
-    normalize: settings => { settings.privateReviewMode = normalizePrivateReviewMode(settings.privateReviewMode); },
+    migrate: settings => {
+        migrateExecutionSettings(settings);
+        migrateQualitySeparation(settings);
+    },
+    normalize: settings => {
+        settings.privateReviewMode = normalizePrivateReviewMode(settings.privateReviewMode);
+        Object.assign(settings, normalizeCampaignLayers(settings));
+    },
     onSaveError: error => toastr.error(`Could not save chat settings: ${error.message}`, 'Simulation Blackboard'),
 });
 
@@ -189,7 +202,7 @@ export function getBlackboardMonitorStatus() {
                     : 'WITHIN SIZE CORRIDOR: still verify contact coverage and active processes.';
         const engine = getEngine();
         const stale = staleBlocks(bb, engine.ages, engine.turn, 3);
-        let progression = gameSystem(getSettings()) === 'universal' ? '\n- Progression: campaign-owned record; no automatic game-specific calculations.' : '';
+        let progression = !hasCalculatedProgression(getSettings()) ? '\n- Progression: campaign-owned record; no automatic game-specific calculations.' : '';
         try {
             const p = readProgression(bb, { gameSystem: gameSystem(getSettings()) });
             if (p) progression = `\n- Progression (calculated): level ${p.level}; ${p.mode === 'xp' ? `${p.xp} XP, eligible level ${p.eligible_level}, next threshold ${p.next_level_xp ?? 'MAX'}` : 'milestone mode'}; proficiency +${p.proficiency_bonus}; pending choices: ${p.pending_choices.length}.`;
@@ -234,6 +247,7 @@ export function getActiveBackgroundSystemPrompt() {
  */
 export function syncExtensionPrompt() {
     const settings = getSettings();
+    $('#blackboard_composed_prompt_preview').val(composeGamePrompt(settings, FIDELITY_PRESETS).text + '\n\n' + executionInstructions(settings));
     setExtensionPromptSafe(PROMPT_INJECTION_KEY,
         settings.functionTool && settings.autoInjectPrompt ? getActiveSystemPrompt() : '',
         settings.functionTool && settings.autoInjectPrompt ? 0 : -1, 0, false, 0);
@@ -490,8 +504,8 @@ function registerFunctionTools() {
             registerFunctionTool({
                 name: 'UpdateBlackboard',
                 displayName: 'Update World Blackboard',
-                description: 'Updates the persistent objective state (Single Source of Truth / Blackboard) of the campaign world. Call this tool whenever entering a new area/shop, time elapses (updating [MISC #world_clock]), advancing off-screen entities, mutating entity statblocks/inventories/injuries, tracking stealth/alarm timers, or pruning resolved blocks. Supports granular block actions ("upsert", "delete") using block_id (e.g., "SCENE #dock", "NARRATIVE #murderer", "ENTITIES #boss", "MISC #world_clock"), or a complete snapshot ("replace_all"). ' + (gameSystem(settings) === 'universal' ? GENERIC_PROGRESSION_TOOL : 'The progression JSON ledger is validated and its totals are computed; preserve every previous award entry and include the updated player sheet when applying a level-up. Batch updates are validated before changing any state.'),
-                parameters: gameSystem(settings) === 'universal' ? { ...blackboardSchema, properties: { ...blackboardSchema.properties, content: { ...blackboardSchema.properties.content, description: 'Complete replacement body for one block or a batch of full blocks. Preserve all unaffected facts. ' + GENERIC_PROGRESSION_TOOL } } } : blackboardSchema,
+                description: 'Updates the persistent objective state (Single Source of Truth / Blackboard) of the campaign world. Call this tool whenever entering a new area/shop, time elapses (updating [MISC #world_clock]), advancing off-screen entities, mutating entity statblocks/inventories/injuries, tracking stealth/alarm timers, or pruning resolved blocks. Supports granular block actions ("upsert", "delete") using block_id (e.g., "SCENE #dock", "NARRATIVE #murderer", "ENTITIES #boss", "MISC #world_clock"), or a complete snapshot ("replace_all"). ' + (!hasCalculatedProgression(settings) ? GENERIC_PROGRESSION_TOOL : 'The progression JSON ledger is validated and its totals are computed; preserve every previous award entry and include the updated player sheet when applying a level-up. Batch updates are validated before changing any state.'),
+                parameters: !hasCalculatedProgression(settings) ? { ...blackboardSchema, properties: { ...blackboardSchema.properties, content: { ...blackboardSchema.properties.content, description: 'Complete replacement body for one block or a batch of full blocks. Preserve all unaffected facts. ' + GENERIC_PROGRESSION_TOOL } } } : blackboardSchema,
                 action: async (args) => {
                     if (!getSettings().functionTool) return JSON.stringify({ status: 'error', message: 'Simulation Blackboard is disabled.' });
                     try {
@@ -581,7 +595,7 @@ function inspectorSummary(text) {
     try {
         const p = readProgression(text, { gameSystem: gameSystem(getSettings()) });
         progression = p ? `Level ${p.level} | ${p.classes.map(c => `${c.name} ${c.level}`).join(' / ')} | ${p.mode === 'xp' ? `XP ${p.xp} / ${p.next_level_xp ?? 'MAX'} | Earned level ${p.eligible_level}` : 'Milestones'} | Proficiency +${p.proficiency_bonus} | Pending choices: ${p.pending_choices.length}`
-            : gameSystem(getSettings()) === 'universal' ? 'Progression: campaign-owned record; no automatic D&D calculations.' : 'Progression: not initialized.';
+            : !hasCalculatedProgression(getSettings()) ? 'Progression: campaign-owned record; no automatic D&D calculations.' : 'Progression: not initialized.';
     } catch (error) { progression = `Progression: ${error.message}`; }
     const engine = getEngine();
     const stale = staleBlocks(text, engine.ages, engine.turn, 3);
@@ -722,7 +736,7 @@ async function addSettingsDrawer() {
         function rememberPromptDrafts() {
             const quality = $('#blackboard_custom_prompt').val();
             const background = $('#blackboard_background_custom_prompt').val();
-            const savedQuality = composeGamePrompt(settings, FIDELITY_PRESETS).base;
+            const savedQuality = composeGamePrompt(settings, FIDELITY_PRESETS).rawBase;
             const savedBackground = settings.customBackgroundPrompt?.trim()
                 ? settings.customBackgroundPrompt : DEFAULT_BACKGROUND_SYSTEM_PROMPT;
             if (quality !== savedQuality || background !== savedBackground) {
@@ -852,13 +866,29 @@ async function addSettingsDrawer() {
             $maxTokensInput.val(budget(settings, FIDELITY_PRESETS).max).prop('disabled', !isCustom);
 
             const resolved = composeGamePrompt(settings, FIDELITY_PRESETS);
-            const activePrompt = resolved.base;
+            const activePrompt = resolved.rawBase;
             $('#blackboard_game_system').val(gameSystem(settings));
             $('#blackboard_game_system_desc').text(GAME_SYSTEMS[gameSystem(settings)].description);
             $('#blackboard_game_profile_preview').val(resolved.profile);
+            const layers = normalizeCampaignLayers(settings);
+            $('#blackboard_simulation_focus').val(layers.simulationFocus);
+            $('#blackboard_campaign_style').val(layers.campaignStyle);
+            $('#blackboard_campaign_tone').val(layers.campaignTone);
+            $('#blackboard_narrative_style').val(layers.narrativeStyle);
+            $('#blackboard_campaign_style_desc').text(CAMPAIGN_LAYER_OPTIONS.campaignStyle.find(option => option.id === layers.campaignStyle).description);
+            $('#blackboard_campaign_tone_desc').text(CAMPAIGN_LAYER_OPTIONS.campaignTone.find(option => option.id === layers.campaignTone).description);
+            $('#blackboard_campaign_layers_preview').val(resolved.campaignLayers.instructions || 'No additional campaign instructions. Existing campaign direction is preserved.');
+            $('#blackboard_composed_prompt_preview').val(resolved.text + '\n\n' + executionInstructions(settings));
+            $('#blackboard_campaign_layers_desc').text(!settings.functionTool
+                ? 'Saved for when simulation is enabled. Scene backgrounds use their own instructions.'
+                : resolved.custom && !resolved.recognized
+                    ? 'Your custom quality text is preserved. Reconcile any conflicting tone, style or focus instructions in it manually.'
+                    : 'Applies within the selected quality and game rules. Existing facts and player choices are preserved.');
             $('#blackboard_custom_system_notice').text(resolved.custom && !resolved.recognized
-                ? 'Custom text is preserved verbatim. Remove any conflicting game-specific instructions yourself when switching profiles.'
-                : 'Known presets are separated into shared instructions and the selected game profile. Your saved original text is preserved.');
+                ? 'Custom text is preserved verbatim. Reconcile any conflicting game, tone or style instructions yourself when changing profiles.'
+                : resolved.historical
+                    ? 'A known historical preset was upgraded to the current separated quality source shown here. Tone and narration are separate settings; your saved original is retained.'
+                : 'This is the complete active quality source. Game rules and optional campaign layers are appended separately; changing a layer never rewrites this text.');
             $('#blackboard_custom_prompt').val(activePrompt);
         }
 
@@ -904,7 +934,13 @@ async function addSettingsDrawer() {
 
         $('#blackboard_game_system').on('change', function () {
             if (!ensureSettingsCurrent()) return;
-            settings.gameSystem = $(this).val() === 'universal' ? 'universal' : 'dnd5e';
+            const selected = String($(this).val());
+            if (!Object.hasOwn(GAME_SYSTEMS, selected)) {
+                updateFidelityUI();
+                toastr.error('Unknown game profile. Existing campaign settings were preserved.', 'Simulation Blackboard');
+                return;
+            }
+            settings.gameSystem = selected;
             updateFidelityUI();
             persistSettings();
             registerFunctionTools();
@@ -912,12 +948,31 @@ async function addSettingsDrawer() {
             toastr.info('Game profile changed. Existing chat state has not been converted.');
         });
 
+        for (const [id, key] of Object.entries({
+            blackboard_simulation_focus: 'simulationFocus',
+            blackboard_campaign_style: 'campaignStyle',
+            blackboard_campaign_tone: 'campaignTone',
+            blackboard_narrative_style: 'narrativeStyle',
+        })) {
+            $(`#${id}`).on('change', function () {
+                if (!ensureSettingsCurrent()) return;
+                // Changing a direction must never save an unrelated quality-editor draft.
+                const qualityDraft = $('#blackboard_custom_prompt').val();
+                settings[key] = normalizeCampaignLayers({ ...settings, [key]: $(this).val() })[key];
+                updateFidelityUI();
+                $('#blackboard_custom_prompt').val(qualityDraft);
+                persistSettings();
+                syncExtensionPrompt();
+            });
+        }
+
         $('#blackboard_save_prompt').on('click', () => {
             if (!ensureSettingsCurrent()) return;
             const val = $('#blackboard_custom_prompt').val()?.trim() ?? '';
             settings.systemPromptVariant = resolveQualityPrompt(settings, FIDELITY_PRESETS).variant;
             if (settings.customPrompt && !settings.customPromptBackup) settings.customPromptBackup = settings.customPrompt;
             settings.customPrompt = val;
+            updateFidelityUI();
             persistSettings();
             syncExtensionPrompt();
             toastr.success('Blackboard system prompt saved.');

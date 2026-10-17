@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { SYSTEM_BUNDLES } from '../prompts/system-bundles.js';
+import { GAME_PROFILE_PROMPTS } from '../prompts/game-profile-bundles.js';
 import { composeGamePrompt, gameSystem } from '../game-profiles.js';
 import { applyUpdate, validateBoard, readProgression } from '../state.js';
 import { DraftTurn, runPrivateTurn } from '../transaction.js';
@@ -18,7 +19,8 @@ for (const id of Object.keys(SYSTEM_BUNDLES)) {
         const p = composeGamePrompt(settings,presets);
         assert.equal(JSON.stringify(settings), before, 'Reading a prompt cannot overwrite the saved original');
         assert.equal(p.base, await readFile(new URL(`../prompts/systems/${id}-base.md`,import.meta.url),'utf8'));
-        assert.equal(p.profile, await readFile(new URL('../prompts/systems/universal.md',import.meta.url),'utf8'));
+        const universalSource = await readFile(new URL('../prompts/systems/universal.md',import.meta.url),'utf8');
+        assert.equal(p.profile, [GAME_PROFILE_PROMPTS.common, universalSource, GAME_PROFILE_PROMPTS.advancement].map(t=>t.trim()).join('\n\n')+'\n');
         assert.match(p.base, /<item>/);
         assert.match(p.base, /UpdateBlackboard/);
         assert.match(p.base, /\{\{getvar::world_blackboard\}\}/);
@@ -26,14 +28,16 @@ for (const id of Object.keys(SYSTEM_BUNDLES)) {
         const dnd = composeGamePrompt({...settings,gameSystem:'dnd5e'},presets);
         assert.equal(p.base,dnd.base);
         assert.match(dnd.profile,/D&D 5e/);
-        assert.equal(dnd.profile, await readFile(new URL(`../prompts/systems/${id}-dnd5e.md`,import.meta.url),'utf8'));
+        const dndSource = await readFile(new URL(`../prompts/systems/${id}-dnd5e.md`,import.meta.url),'utf8');
+        assert.equal(dnd.profile, GAME_PROFILE_PROMPTS.common.trim()+'\n\n'+dndSource.trim()+'\n');
         if (['compact','ultra'].includes(id)) {
             const originalSection = '### 21.' + SYSTEM_BUNDLES[id].legacy.split('### 21.')[1];
             assert.ok(dnd.profile.replace(/\r\n/g, '\n').includes(originalSection.replace(/\r\n/g, '\n')), 'The original detailed D&D advancement procedure survives intact');
-            for (const section of [4,5,9,16,18,20]) {
+            for (const section of [4,5,18,20]) {
                 const extract = t => t.replace(/\r\n/g, '\n').match(new RegExp(`### ${section}\\.[\\s\\S]*?(?=\\n### \\d+\\.|$)`))?.[0];
                 // Item-card properties/currency are generalized. Distance-dependent
                 // sections changed with the expanded Ultra horizon, tested separately.
+                // Faction and agency sections were later corrected by the prompt audit.
                 if (section!==18 && id==='compact') assert.equal(extract(p.base),extract(SYSTEM_BUNDLES[id].legacy));
             }
         }
@@ -62,7 +66,8 @@ test('unrecognized Ultra custom text defaults to v6 profile while explicit legac
     const custom='User-specific world rules.';
     const current=composeGamePrompt({simulationFidelity:'ultra',customPrompt:custom},presets);
     assert.equal(current.base,custom);assert.equal(current.variant,'compact');
-    assert.equal(current.profile,SYSTEM_BUNDLES.compact.dnd5e);
+    assert.ok(current.profile.endsWith(SYSTEM_BUNDLES.compact.dnd5e.trim()+'\n'));
+    assert.ok(current.profile.startsWith(GAME_PROFILE_PROMPTS.common.trim()+'\n\n'));
     const legacy=composeGamePrompt({simulationFidelity:'ultra',customPrompt:SYSTEM_BUNDLES.ultra.legacy},presets);
     assert.equal(legacy.variant,'ultra');assert.equal(legacy.base,SYSTEM_BUNDLES.ultra.base);
 });

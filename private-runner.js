@@ -4,6 +4,7 @@ import { runPrivateTurn } from './transaction.js';
 import { stageLabel } from './review.js';
 import { normalizePrivateReviewMode, privateReviewModeLabel } from './private-modes.js';
 import { createPrivateReportArchive, legacyPrivateReport } from './private-report-store.js';
+import { freezeCampaignLayers } from './campaign-layers.js';
 
 let lastRun = null;
 let lastRunScope = null;
@@ -64,7 +65,7 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
         try {
             scope = await reportArchive.key(context);
             assertCurrent();
-            const result = await runPrivateTurn({ baseline, mode: s.privateReviewFormat, reviewMode, gameSystem: s.gameSystem, backgroundsEnabled: !!s.autoSceneBackground,
+            const result = await runPrivateTurn({ baseline, mode: s.privateReviewFormat, reviewMode, gameSystem: s.gameSystem, campaignLayers: freezeCampaignLayers(s), backgroundsEnabled: !!s.autoSceneBackground,
                 context: host.messages, request: host.request, invoke: host.invoke,
                 signal: host.signal, assertCurrent, checkpoint: host.checkpoint, saveCheckpoint: host.saveCheckpoint,
                 onProgress: (phase, revision, stats, stage) => {
@@ -74,7 +75,7 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
                 },
             });
             const background = { status: !s.autoSceneBackground ? 'disabled' : result.draft.background ? 'queued' : result.draft.backgroundRequests.length ? 'discarded' : 'not_requested', request: result.draft.background, result: null };
-            const report = { status: 'reviewed', attempt_started: attemptStarted, gameSystem: result.draft.gameSystem, recovery: host.recoveryInfo, ...result.stats, review: result.review, versions: result.draft.versions,
+            const report = { status: 'reviewed', attempt_started: attemptStarted, gameSystem: result.draft.gameSystem, campaignLayers: result.draft.campaignLayers, recovery: host.recoveryInfo, ...result.stats, review: result.review, versions: result.draft.versions,
                 rolls: result.draft.rolls, receipts: result.draft.receipts, background, backgroundRequests: result.draft.backgroundRequests, candidate: result.candidate,
                 auditLog: result.auditLog, candidateVersions: result.candidateVersions, issueLedger: result.issueLedger,
                 stageFindings: result.stageFindings, invalidationLog: result.invalidationLog };
@@ -154,7 +155,7 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
             };
         } catch (e) {
             const retained = lastRunScope === scope ? lastRun : null;
-            lastRun = { ...retained, status: 'failed', attempt_started: attemptStarted, details: e.privateTurn ?? retained?.details, reason: String(e.message), mode: s.privateReviewFormat, reviewMode, at: new Date().toISOString() };
+            lastRun = { ...retained, status: 'failed', attempt_started: attemptStarted, campaignLayers: retained?.campaignLayers ?? e.privateTurn?.campaignLayers ?? host.checkpoint?.draft?.campaignLayers ?? freezeCampaignLayers(s), details: e.privateTurn ?? retained?.details, reason: String(e.message), mode: s.privateReviewFormat, reviewMode, at: new Date().toISOString() };
             lastRunScope = scope;
             if (scope) {
                 try { await reportArchive.save(scope, lastRun); }

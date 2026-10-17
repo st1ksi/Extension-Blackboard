@@ -1,5 +1,6 @@
 import { parseBlocks } from './state.js';
 import { LIGHT_REVIEW_STAGE, normalizeLightAffected } from './private-modes.js';
+import { getCampaignReviewCriteria } from './campaign-layers.js';
 
 export const REVIEW_STAGES = Object.freeze([
     { id: 'time', label: 'Time and active actors', task: `Reconstruct the resolved interval and the sequence of actions before evaluating its ending.
@@ -114,12 +115,14 @@ Return ONLY JSON: {"stage":"<audit.stage>","revision":<head_revision>,"candidate
 issue_ledger contains persistent observations, not unquestionable truths. For EACH pending_issue_id, return an issue_resolution. Open means confirmed and still requires repair; resolved means the identified defect was corrected; rejected means the original allegation was mistaken, with a factual reason. Never close an issue just because a process or unrelated example is correct. Cite the affected owner's own current block when present. If fixed by changing a block or answer, cite the corrected version, not only the old one. Reuse an issue's id when repeating it in issues. Pass requires all pending IDs closed and no new issues; repair/blocked requires new issues or an open resolution. Never silently omit an observation. During format correction, use format_feedback.previous_report and repair the invalid parts; retain earlier observations or explicitly refute them with evidence.
 Evidence source is current or baseline (block_id required), revision:N (block_id required), candidate, rolls, or context (no block_id). Cite short supplied excerpts; JSON layout whitespace outside strings is ignored. Cover each target exactly once. Use blocked only if correction truly requires a new random outcome, an unresolved player choice or unavailable indispensable information; never fabricate those to make a pass. A format failure is not permission to edit the world.`;
 
-export function reviewProtocol(stageId, purpose = 'detect') {
+export function reviewProtocol(stageId, purpose = 'detect', campaignLayers = null) {
     const stage = stageId === 'light' ? LIGHT_REVIEW_STAGE : REVIEW_STAGES.find(s => s.id === stageId);
     const assignment = purpose === 'verify'
         ? `VERIFY RECORDED REPAIRS — You are not the repair author. Start with EACH issue_ledger entry and compare its original allegation, repair_before state/candidate, repair_changes and current state/candidate. Decide separately whether the defect persists, was actually fixed, or was a false allegation. A newer revision or the repairer's confidence is not evidence. Check every linked copy and any consequences of these edits within your assigned aspect; use all audit targets as a regression check. Record newly exposed defects too. Do not edit anything. Another dedicated repair request will handle confirmed open findings.`
         : `DETECT AND RECORD — Find concrete omissions and contradictions in this aspect of the simulated transition. Record them in issues with evidence and a minimal supported repair direction. Your task is diagnosis, not rewriting the board or producing a replacement answer. A separate repair request receives your confirmed findings. If there are none, return pass with the required grounded checks; do not invent work. Existing pending observations must still be explicitly resolved or confirmed.`;
-    return `${COMMON_REVIEW}\n\n${assignment}\n\nYOUR ASSIGNMENT — ${stage.id.toUpperCase()}\n${stage.task}`;
+    const criteria = campaignLayers ? getCampaignReviewCriteria(campaignLayers, stageId) : '';
+    return `${COMMON_REVIEW}\n\n${assignment}\n\nYOUR ASSIGNMENT — ${stage.id.toUpperCase()}\n${stage.task}`
+        + (criteria ? `\n\nSELECTED CAMPAIGN CRITERIA FOR THIS ASPECT\n${criteria}` : '');
 }
 
 export function repairProtocol(stageId) {

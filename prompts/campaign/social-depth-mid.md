@@ -1,0 +1,1 @@
+SOCIAL DEPTH — MID: Detail the active participants' relevant dispositions, significant memories and directed relationships. Keep compact social skeletons for the tier's concrete distance-2 alternatives. Include obligations and communication that can affect this episode; do not expand the entire acquaintance network.

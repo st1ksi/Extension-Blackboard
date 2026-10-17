@@ -5,6 +5,7 @@ import { normalizeDiceArguments, diceResult, emptyDiceError, recoverEmptyDiceChe
 import { REVIEW_STAGES, makeAudit, reviewProtocol, repairProtocol, validateAudit, validateEvidence, affectedReviewStages } from './review.js';
 import { normalizePrivateReviewMode, LIGHT_REVIEW_STAGE, LIGHT_REPAIR_PROTOCOL, validateLightCorrection } from './private-modes.js';
 import { pendingIssues, captureIssues, acceptIssueReport, reopenIssueVerdicts, stageFindings } from './issue-ledger.js';
+import { freezeCampaignLayers, campaignLayersFingerprint, getCampaignReviewCriteria } from './campaign-layers.js';
 
 export const PROCESS_KEY = 'misc #simulation_processes';
 const map = text => new Map(parseBlocks(text).blocks.map(b => [b.blockKey, b.content]));
@@ -96,8 +97,11 @@ export class DraftTurn {
 export { PRIVATE_PROTOCOL } from './turn-instructions.js';
 
 /** Serializable state machine. Checkpoints are private, never chat messages. */
-export async function runPrivateTurn({ baseline, mode, reviewMode = 'heavy', gameSystem = 'dnd5e', backgroundsEnabled = true, context, request, invoke, signal, assertCurrent = () => {}, onProgress = () => {}, maxRepairs = 4, checkpoint = null, saveCheckpoint = async () => {} }) {
+export async function runPrivateTurn({ baseline, mode, reviewMode = 'heavy', gameSystem = 'dnd5e', campaignLayers = null, backgroundsEnabled = true, context, request, invoke, signal, assertCurrent = () => {}, onProgress = () => {}, maxRepairs = 4, checkpoint = null, saveCheckpoint = async () => {} }) {
     const selectedReviewMode = normalizePrivateReviewMode(reviewMode);
+    const selectedLayers = structuredClone(campaignLayers ?? freezeCampaignLayers({ gameSystem }));
+    const selectedLayerFingerprint = campaignLayersFingerprint(selectedLayers);
+    if (selectedLayers.gameProfile.id !== gameSystem) throw new Error('Game system changed or conflicts with the frozen instruction profile. Restore the matching profile before resuming.');
     const state = checkpoint ? structuredClone(checkpoint) : {
         version: 4, draft: new DraftTurn(baseline, mode, gameSystem), context, phase: 'simulate', step: 0,
         reviewMode: selectedReviewMode,
@@ -106,6 +110,17 @@ export async function runPrivateTurn({ baseline, mode, reviewMode = 'heavy', gam
         stats: { mode: mode || 'diff', reviewMode: selectedReviewMode, requests: 0, reviews: 0, repairs: 0, inputChars: 0, outputChars: 0, started: Date.now() },
     };
     if (![1, 2, 3, 4].includes(state.version) || state.draft.baseline !== baseline) throw new Error('Incompatible checkpoint or changed baseline');
+    if ((state.draft.gameSystem ?? 'dnd5e') !== gameSystem) throw new Error('Game system changed; restore the checkpoint profile before resuming.');
+    const savedLayers = state.draft.campaignLayers;
+    if (checkpoint && (!savedLayers || savedLayers.version === 1)) {
+        throw new Error('This saved turn predates the separated quality and campaign instructions. Its draft is preserved. Export it, or restore its original extension version and settings to resume; discard only if you want to restart the turn.');
+    }
+    if (savedLayers) {
+        if (campaignLayersFingerprint(savedLayers) !== selectedLayerFingerprint) throw new Error('Campaign instructions changed; restore the saved campaign settings and instruction version before resuming.');
+    }
+    // Exact text and current-aspect criteria remain private and immutable for
+    // this transaction. A later prompt edit cannot reinterpret a paused turn.
+    state.draft.campaignLayers = savedLayers ?? selectedLayers;
     // Checkpoints from before review modes are always the original heavy cycle.
     state.reviewMode = normalizePrivateReviewMode(state.reviewMode);
     if (state.reviewMode !== selectedReviewMode) throw new Error('Private review mode changed; restore the checkpoint mode before resuming.');
@@ -213,8 +228,12 @@ export async function runPrivateTurn({ baseline, mode, reviewMode = 'heavy', gam
                 ...(phase === 'repair' ? { stage, candidate_id: state.candidateId, current_board: draft.head,
                     issues_to_fix: issuePacket.filter(i => isLight || i.status === 'open'), reference_context: state.context,
                     ...(isLight ? { ...repairEvidence(), mechanical_errors: draft.checks(), format_feedback: state.formatFeedback ?? null } : {}) } : {}) };
-            const protocol = phase === 'review' ? reviewProtocol(stage, state.reviewKind) : phase === 'repair' ? (isLight ? LIGHT_REPAIR_PROTOCOL : PRIVATE_PROTOCOL + '\n' + repairProtocol(stage))
+            let protocol = phase === 'review' ? reviewProtocol(stage, state.reviewKind, draft.campaignLayers) : phase === 'repair' ? (isLight ? LIGHT_REPAIR_PROTOCOL : PRIVATE_PROTOCOL + '\n' + repairProtocol(stage))
                 : PRIVATE_PROTOCOL + (backgroundsEnabled ? '\n\n' + PRIVATE_BACKGROUND_PROTOCOL : '');
+            if (phase === 'repair') {
+                const criteria = getCampaignReviewCriteria(draft.campaignLayers, stage);
+                if (criteria) protocol += '\n\nCAMPAIGN CRITERIA — apply only to the recorded findings and their necessary consequences; do not start another audit or advance time.\n' + criteria;
+            }
             // The auditor receives campaign context as reference data, with its
             // own system role. It does not inherit the live DM task/assistant role.
             const data = 'PRIVATE TURN DATA (not a new player action):\n' + JSON.stringify({ phase, ...draft.packet(), ...payload });
@@ -492,7 +511,7 @@ export async function runPrivateTurn({ baseline, mode, reviewMode = 'heavy', gam
         await save();
         return { draft, candidate: state.candidate, stats, review: state.review, auditLog: state.auditLog, candidateVersions: state.candidateVersions, issueLedger: state.issueLedger, stageFindings: findings(), invalidationLog: state.invalidationLog };
     } catch (error) {
-        error.privateTurn = { versions: draft.versions, rolls: draft.rolls, receipts: draft.receipts, candidate: state.candidate, feedback: state.feedback, stats, background: draft.background, backgroundRequests: draft.backgroundRequests,
+        error.privateTurn = { versions: draft.versions, rolls: draft.rolls, receipts: draft.receipts, campaignLayers: draft.campaignLayers, candidate: state.candidate, feedback: state.feedback, stats, background: draft.background, backgroundRequests: draft.backgroundRequests,
             auditLog: state.auditLog, candidateVersions: state.candidateVersions, issueLedger: state.issueLedger, stageFindings: findings(), invalidationLog: state.invalidationLog, review_kind: state.reviewKind, stage: reviewStages[state.auditIndex]?.id, legacyReview: state.legacyReview };
         throw error;
     }

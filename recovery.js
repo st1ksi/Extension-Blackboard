@@ -3,6 +3,7 @@
 import { stageLabel } from './review.js';
 import { privateTurnCapabilities } from './capabilities.js';
 import { normalizePrivateReviewMode, privateReviewModeLabel } from './private-modes.js';
+import { freezeCampaignLayers, campaignLayersFingerprint } from './campaign-layers.js';
 export function openCheckpointStore(indexedDB = () => globalThis.indexedDB) {
     let database;
     async function db() {
@@ -67,11 +68,13 @@ export function createRecovery({ getContext, getBoard, setBoard, settings, getAc
         if (record.key === await key().catch(() => null)) render(record, activeKey === record.key, actions);
     }
     async function create(ctx, type, messages, scope) {
+        const currentSettings = settings();
         const record = { version: 1, id: crypto.randomUUID(), key: scope, type, messages,
-            reviewMode: normalizePrivateReviewMode(settings().privateReviewMode),
+            reviewMode: normalizePrivateReviewMode(currentSettings.privateReviewMode),
             status: 'running', createdAt: new Date().toISOString(), baseline: getBoard(),
             engine: structuredClone(ctx.chatMetadata.blackboard_engine), history: historyKey(ctx.chat),
-            connection: await digest(ctx.chatCompletionSettings), settings: await digest(settings()), checkpoint: null };
+            connection: await digest(ctx.chatCompletionSettings), settings: await digest(currentSettings),
+            campaignLayers: freezeCampaignLayers(currentSettings), checkpoint: null };
         // ST returns a failed pending swipe to the previous answer. Permit only
         // that exact fallback, not arbitrary branch edits or selected swipes.
         const last = ctx.chat.at(-1);
@@ -89,16 +92,33 @@ export function createRecovery({ getContext, getBoard, setBoard, settings, getAc
         if (record.version !== 1 || record.key !== await key(ctx)) throw new Error('Checkpoint belongs to another chat or unsupported version.');
         if (['publishing', 'published'].includes(record.status)) throw new Error('Publication has already started. Check the latest message and save the chat; regeneration is blocked to prevent duplicates.');
         const currentSettings = settings();
+        const currentLayers = freezeCampaignLayers(currentSettings);
+        const savedLayers = record.campaignLayers ?? record.checkpoint?.draft?.campaignLayers;
+        // The separated quality and game-profile sources change the meaning of
+        // even General / inherited campaigns. Old context must never be resumed
+        // under new correction rules merely because its selectors look equal.
+        if (!savedLayers || savedLayers.version === 1 || record.checkpoint?.draft?.campaignLayers?.version === 1) {
+            throw new Error('This saved turn predates the separated quality and campaign instructions. Its draft is preserved. Export it, or restore its original extension version and settings to resume; discard only if you want to restart the turn.');
+        }
+        if (savedLayers) {
+            if (campaignLayersFingerprint(savedLayers) !== campaignLayersFingerprint(currentLayers)
+                || (record.campaignLayers && record.checkpoint?.draft?.campaignLayers
+                    && campaignLayersFingerprint(record.campaignLayers) !== campaignLayersFingerprint(record.checkpoint.draft.campaignLayers))) {
+                throw new Error('Campaign settings or instructions changed. Restore the saved campaign settings and instruction version to resume the saved turn.');
+            }
+        }
         let sameSettings = record.settings === await digest(currentSettings);
-        // New default/profile and migration-marker fields must not strand old
-        // checkpoints. Actual checkbox, fidelity or profile changes still reject.
+        // Unrelated historical default fields retain their narrow compatibility
+        // rules only after the separated instruction descriptor has matched.
         const compatibleSettings = [{ ...currentSettings }];
         // Adding the default heavy selector must not invalidate pre-mode saved
         // turns. A real heavy/light change still needs the checkpoint setting.
         if (normalizePrivateReviewMode(currentSettings.privateReviewMode) === 'heavy'
             && normalizePrivateReviewMode(record.checkpoint?.reviewMode) === 'heavy') {
-            const previous = { ...currentSettings }; delete previous.privateReviewMode;
-            compatibleSettings.push(previous);
+            for (const settings of [...compatibleSettings]) {
+                const previous = { ...settings }; delete previous.privateReviewMode;
+                compatibleSettings.push(previous);
+            }
         }
         if (currentSettings.executionModeVersion === 1) {
             for (const settings of [...compatibleSettings]) {

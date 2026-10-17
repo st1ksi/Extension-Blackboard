@@ -191,6 +191,9 @@
 .blackboard_settings .blackboard-settings-scope small { overflow-wrap: anywhere; }
 .blackboard_settings .blackboard-settings-scope button { max-width: 100%; margin-top: 8px; white-space: normal; }
 .blackboard_settings .blackboard-settings-scope button:disabled { opacity: .45; cursor: not-allowed; }
+.blackboard_settings .blackboard-campaign-focus select,
+.blackboard_settings .blackboard-campaign-direction select { width: 100%; min-width: 0; }
+.blackboard_settings .blackboard-campaign-direction label { display: block; margin-top: 10px; }
 .blackboard-dashboard {
     --bb-accent: #9acde3;
     --bb-muted: #aab8c3;
@@ -278,6 +281,7 @@
 }
 .blackboard-dashboard select { appearance: auto; height: auto; cursor: pointer; }
 .blackboard-dashboard .bb-dash-select-row select { width: auto; max-width: 68%; margin: 0; }
+.blackboard-dashboard .bb-dash-game-row select { min-width: 0; }
 .blackboard-dashboard .bb-dash-budget { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
 .blackboard-dashboard .bb-dash-budget label { color: var(--bb-muted); font-size: 12px; }
 .blackboard-dashboard .bb-dash-details { margin-top: 12px; }
@@ -289,6 +293,11 @@
 .blackboard-dashboard .bb-dash-details-body > label { display: block; font-size: 12px; }
 .blackboard-dashboard .bb-dash-details-body .bb-dash-toggle { display: flex; font-size: 13px; margin: 8px 0 20px; }
 .blackboard-dashboard .bb-dash-details-body > .bb-dash-hint:first-child { margin-top: 0; }
+.blackboard-dashboard .bb-dash-campaign-direction .bb-dash-details-body > label { margin-top: 14px; }
+.blackboard-dashboard .bb-dash-campaign-direction select { min-width: 0; max-width: 100%; }
+.blackboard-dashboard .bb-dash-focus-row > span { min-width: 0; }
+.blackboard-dashboard .bb-dash-focus-row select { min-width: 0; }
+
 .blackboard-dashboard .bb-dash-advanced { margin: 16px 0 0; }
 .blackboard-dashboard .bb-dash-advanced > summary { font-size: 13px; }
 .blackboard-dashboard .bb-dash-intro { margin: 0 0 20px; }
@@ -314,6 +323,8 @@
     .blackboard-dashboard .bb-dash-close { width: 40px; height: 40px; }
 }
 @media (max-width: 480px) {
+    .blackboard-dashboard :is(.bb-dash-focus-row, .bb-dash-game-row) { align-items: stretch; flex-direction: column; gap: 6px; }
+    .blackboard-dashboard :is(.bb-dash-focus-row, .bb-dash-game-row) select { width: 100%; max-width: 100%; }
     .blackboard-dashboard .bb-dash-tiers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (prefers-reduced-motion: reduce) {

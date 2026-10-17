@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { SYSTEM_BUNDLES } from '../prompts/system-bundles.js';
+import { GAME_PROFILE_PROMPTS } from '../prompts/game-profile-bundles.js';
 import { composeGamePrompt } from '../game-profiles.js';
 import { applyUpdate, readProgression, validateBoard } from '../state.js';
 import { DraftTurn, processRegister } from '../transaction.js';
@@ -10,6 +11,8 @@ const tiers = ['low', 'mid', 'high'];
 const presets = Object.fromEntries(Object.entries(SYSTEM_BUNDLES).map(([id, bundle]) => [id, { prompt: bundle.base }]));
 const sourceFile = name => readFile(new URL(`../prompts/systems/${name}`, import.meta.url), 'utf8');
 const fencedJson = text => [...text.matchAll(/```json\s*\n([\s\S]*?)\n```/g)].map(match => JSON.parse(match[1]));
+const expectedProfile = (bundle, gameSystem) => [GAME_PROFILE_PROMPTS.common, bundle[gameSystem],
+    gameSystem === 'dnd5e' ? '' : GAME_PROFILE_PROMPTS.advancement].filter(Boolean).map(t=>t.trim()).join('\n\n')+'\n';
 const progressionBlock = value => '[MISC #character_progression]\n```json\n' + JSON.stringify(value) + '\n```';
 
 for (const tier of tiers) {
@@ -28,8 +31,8 @@ for (const tier of tiers) {
                     assert.equal(composed.recognized, true);
                     assert.equal(composed.variant, tier);
                     assert.equal(composed.base, expectedBase);
-                    assert.equal(composed.profile, bundle[gameSystem]);
-                    assert.equal(composed.text, `${expectedBase.trim()}\n\n---\n\n${bundle[gameSystem].trim()}\n`);
+                    assert.equal(composed.profile, expectedProfile(bundle, gameSystem));
+                    assert.equal(composed.text, `${expectedBase.trim()}\n\n---\n\n${expectedProfile(bundle, gameSystem).trim()}\n`);
                     assert.equal(JSON.stringify(settings), before);
                 }
             }
@@ -43,7 +46,7 @@ for (const tier of tiers) {
             const composed = composeGamePrompt(settings, presets);
             assert.equal(composed.recognized, false);
             assert.equal(composed.base, customPrompt);
-            assert.equal(composed.profile, SYSTEM_BUNDLES[tier][gameSystem]);
+            assert.equal(composed.profile, expectedProfile(SYSTEM_BUNDLES[tier], gameSystem));
             assert.equal(settings.customPrompt, customPrompt);
         }
     });
