@@ -5,6 +5,7 @@ import { stageLabel } from './review.js';
 import { normalizePrivateReviewMode, privateReviewModeLabel } from './private-modes.js';
 import { createPrivateReportArchive, legacyPrivateReport } from './private-report-store.js';
 import { freezeCampaignLayers } from './campaign-layers.js';
+import { runPresetCompatibleTurn, appendCompatibilityJournal, captureDisplayedHistory } from './preset-compatibility.js';
 
 let lastRun = null;
 let lastRunScope = null;
@@ -33,7 +34,7 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
         getAccount: async () => (await import('../../../user.js')).getCurrentUserHandle() });
     registerBlackboardPrivateRunner(async host => {
         const s = structuredClone(settings());
-        if (!s.functionTool || !s.privateReview) return null;
+        if (!s.functionTool || (!s.privateReview && !s.separateNarration)) return null;
         if (host.dryRun) return null;
         if (host.type === 'continue') throw new Error('Private review: use a new message or regenerate instead of Continue, to avoid replaying a resolved action.');
         if (!['normal', 'regenerate', 'swipe'].includes(host.type)) return null;
@@ -59,18 +60,22 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
             }
         };
         const reviewMode = normalizePrivateReviewMode(s.privateReviewMode);
-        const toast = toastr.info(`Simulation: preparing working state · ${privateReviewModeLabel(reviewMode)} Private Turns…`, 'Objective Blackboard', { timeOut: 0, extendedTimeOut: 0 });
+        const toast = toastr.info(`Simulation: preparing working state · ${s.separateNarration ? 'Separate narration' : privateReviewModeLabel(reviewMode) + ' Private Turns'}…`, 'Objective Blackboard', { timeOut: 0, extendedTimeOut: 0 });
         let scope;
         const attemptStarted = host.checkpoint?.stats?.started ?? Date.now();
         try {
             scope = await reportArchive.key(context);
             assertCurrent();
-            const result = await runPrivateTurn({ baseline, mode: s.privateReviewFormat, reviewMode, gameSystem: s.gameSystem, campaignLayers: freezeCampaignLayers(s), backgroundsEnabled: !!s.autoSceneBackground,
+            if (!s.separateNarration && host.checkpoint?.kind === 'separate_narration') throw new Error('Enable Separate narration to resume this saved turn.');
+            const executeTurn = s.separateNarration ? runPresetCompatibleTurn : runPrivateTurn;
+            const result = await executeTurn({ baseline, mode: s.privateReviewFormat, reviewMode, gameSystem: s.gameSystem, campaignLayers: freezeCampaignLayers(s), backgroundsEnabled: !!s.autoSceneBackground,
+                ...(s.separateNarration ? { reviewEnabled: !!s.privateReview, chat, type: host.type,
+                    displayedHistory: captureDisplayedHistory(chat, host.type) } : {}),
                 context: host.messages, request: host.request, invoke: host.invoke,
                 signal: host.signal, assertCurrent, checkpoint: host.checkpoint, saveCheckpoint: host.saveCheckpoint,
                 onProgress: (phase, revision, stats, stage) => {
                     host.onProgress?.(phase, revision, stage);
-                    const labels = { simulate: 'Simulation', review: 'Transition review', detect: 'Detecting issues', verify: 'Verifying repairs', repair: 'Repairing issues' };
+                    const labels = { simulate: 'Simulation', review: 'Transition review', detect: 'Detecting issues', verify: 'Verifying repairs', repair: 'Repairing issues', narrate: 'Formatting with preset', narration_check: 'Checking final response' };
                     toast?.find?.('.toast-message').text(`${labels[phase]}${stage ? ': ' + stageLabel(stage) : ''} · revision ${revision}`);
                 },
             });
@@ -78,7 +83,8 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
             const report = { status: 'reviewed', attempt_started: attemptStarted, gameSystem: result.draft.gameSystem, campaignLayers: result.draft.campaignLayers, recovery: host.recoveryInfo, ...result.stats, review: result.review, versions: result.draft.versions,
                 rolls: result.draft.rolls, receipts: result.draft.receipts, background, backgroundRequests: result.draft.backgroundRequests, candidate: result.candidate,
                 auditLog: result.auditLog, candidateVersions: result.candidateVersions, issueLedger: result.issueLedger,
-                stageFindings: result.stageFindings, invalidationLog: result.invalidationLog };
+                stageFindings: result.stageFindings, invalidationLog: result.invalidationLog,
+                ...(result.narration ? { narration: result.narration } : {}) };
             lastRun = report;
             lastRunScope = scope;
             // Retain the complete audit before publication/checkpoint cleanup.
@@ -118,7 +124,8 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
                         last.extra ??= {};
                         last.extra.blackboard_review = result.stats;
                         last.extra.blackboard_tools = journal;
-                        renderedText = originalText + '\n\n' + renderJournal(journal);
+                        renderedText = s.separateNarration ? appendCompatibilityJournal(originalText, renderJournal(journal))
+                            : originalText + '\n\n' + renderJournal(journal);
                         last.mes = renderedText;
                         if (Array.isArray(last.swipes) && Number.isInteger(swipeId)) last.swipes[swipeId] = renderedText;
                         if (last.swipe_info?.[swipeId]) {
@@ -167,7 +174,7 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
         } finally { toastr.clear(toast); }
     }, {
         recovery: { getBoard, setBoard, settings },
-        enabled: () => !!settings().functionTool && !!settings().privateReview,
+        enabled: () => !!settings().functionTool && (!!settings().privateReview || !!settings().separateNarration),
         setup: { enabled: () => !!settings().functionTool, disable: disableSimulation, synchronize },
         onStart: clearPrivateReport,
         onFailure: (error, { published = false, cancelled = false, saved = false, scope } = {}) => {

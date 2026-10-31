@@ -17,7 +17,7 @@ export const CAMPAIGN_LAYER_OPTIONS = Object.freeze({
         option('social_intrigue', 'Social intrigue', 'Intersecting interests, institutions and information; not universal betrayal.'),
         option('exploration', 'Exploration', 'Connected geography, discovery and routes; no required expedition or discovery quota.'),
         option('survival', 'Survival', 'Practical environment, supply and shelter tradeoffs under actual campaign rules.'),
-        option('slice_of_life', 'Everyday life', 'Routines, local concerns and shared activities; no compulsory romance or crisis.'),
+        option('slice_of_life', 'Slice of life', 'Routines, local concerns and shared activities; no compulsory romance or crisis.'),
     ]),
     campaignTone: Object.freeze([
         option('inherit', 'No additional tone', 'Add no tone instructions; follow the existing campaign sources. Quality presets do not choose a tone.'),

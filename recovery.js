@@ -111,6 +111,14 @@ export function createRecovery({ getContext, getBoard, setBoard, settings, getAc
         // Unrelated historical default fields retain their narrow compatibility
         // rules only after the separated instruction descriptor has matched.
         const compatibleSettings = [{ ...currentSettings }];
+        // The new opt-in does not invalidate older ordinary/private checkpoints.
+        // Enabling it is a real pipeline change and must never migrate silently.
+        if (!currentSettings.separateNarration && record.checkpoint?.kind !== 'separate_narration') {
+            for (const settings of [...compatibleSettings]) {
+                const previous = { ...settings }; delete previous.separateNarration;
+                compatibleSettings.push(previous);
+            }
+        }
         // Adding the default heavy selector must not invalidate pre-mode saved
         // turns. A real heavy/light change still needs the checkpoint setting.
         if (normalizePrivateReviewMode(currentSettings.privateReviewMode) === 'heavy'
@@ -186,7 +194,9 @@ export function recoveryPanel() {
         panel?.remove(); panel = null;
         if (!record) return;
         panel = document.createElement('div'); panel.id = 'blackboard-recovery';
-        const title = document.createElement('strong'); title.textContent = `Objective Blackboard · ${privateReviewModeLabel(record.checkpoint?.reviewMode ?? record.reviewMode)} Private Turns`; panel.append(title);
+        const title = document.createElement('strong'); title.textContent = record.checkpoint?.kind === 'separate_narration'
+            ? `Objective Blackboard · Separate narration${record.checkpoint.reviewEnabled ? ' + ' + privateReviewModeLabel(record.checkpoint?.reviewMode ?? record.reviewMode) + ' review' : ''}`
+            : `Objective Blackboard · ${privateReviewModeLabel(record.checkpoint?.reviewMode ?? record.reviewMode)} Private Turns`; panel.append(title);
         const status = document.createElement('div'); status.style.margin = '8px 0'; panel.append(status);
         const describe = () => {
             const revision = record.checkpoint?.draft?.revision ?? Math.max(0, (record.checkpoint?.draft?.versions?.length ?? 1) - 1);

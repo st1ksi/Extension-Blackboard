@@ -68,11 +68,13 @@ export function installSettingsDashboard({ html, presets, document = globalThis.
         panel.querySelector('[data-bb-custom-budget]').hidden = selected !== 'custom';
         const enabled = source('blackboard_function_tool').checked;
         const privateTurns = source('blackboard_private_review').checked;
+        const separateNarration = source('blackboard_separate_narration').checked;
         const reviewMode = source('blackboard_private_mode')?.value === 'light' ? 'Light' : 'Heavy';
         const injection = source('blackboard_auto_inject_prompt').checked;
         const mode = panel.querySelector('[data-bb-mode]');
         mode.textContent = !enabled ? 'Simulation off · preferences retained'
             : !injection ? 'Auto-injection off · instructions are not added'
+            : separateNarration ? `Simulation on · separate narration${privateTurns ? ` · Private Turns (${reviewMode})` : ''}`
             : privateTurns ? `Simulation on · Private Turns (${reviewMode})` : 'Simulation on · standard generation';
         mode.dataset.active = String(enabled && injection);
         const warning = panel.querySelector('[data-bb-private-warning]');
@@ -81,6 +83,12 @@ export function installSettingsDashboard({ html, presets, document = globalThis.
         warning.textContent = !enabled ? 'Inactive while Simulation Blackboard is off.'
             : !injection ? 'Requires auto-injection. Enable it in Advanced settings.'
             : 'Unavailable in this browser. See Private Turn options below.';
+        const separateWarning = panel.querySelector('[data-bb-separate-warning]');
+        const separateUnsupported = enabled && separateNarration && source('blackboard_private_format').disabled;
+        separateWarning.hidden = !separateNarration || (enabled && injection && !separateUnsupported);
+        separateWarning.textContent = !enabled ? 'Inactive while Simulation Blackboard is off.'
+            : !injection ? 'Requires auto-injection. Enable it in Advanced settings.'
+            : 'Unavailable in this browser. See browser requirements in Private Turn options.';
     }
 
     function close({ restoreFocus = true } = {}) {

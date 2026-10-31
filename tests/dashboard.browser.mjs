@@ -411,6 +411,23 @@ try {
     assert.equal(await mirror('function_tool').isChecked(), true);
     await mirror('private_review').uncheck();
     assert.equal((await settings()).privateReview, false);
+    assert.equal(await mirror('separate_narration').isChecked(), false, 'Compatibility is off for existing installations.');
+    await mirror('separate_narration').check();
+    assert.equal((await settings()).separateNarration, true);
+    assert.equal((await settings()).privateReview, false, 'Separate narration does not turn on world audits.');
+    assert.equal(await page.locator('#blackboard_separate_narration').isChecked(), true);
+    assert.equal(await mirror('private_mode').isDisabled(), true);
+    assert.equal(await mirror('private_format').isDisabled(), false);
+    assert.match(await panel.locator('[data-bb-mode]').innerText(), /separate narration/);
+    await mirror('separate_narration').scrollIntoViewIfNeeded();
+    if (output) { await mkdir(output,{recursive:true}); await page.screenshot({animations:'disabled',path:resolve(output,'preset-compatibility-desktop.png')}); }
+    await page.setViewportSize({width:320,height:780});
+    await mirror('separate_narration').scrollIntoViewIfNeeded();
+    assert.ok(await panel.evaluate(p => [p,...p.querySelectorAll('.bb-dash-scroll,.bb-dash-pane:not([hidden])')].every(e => e.scrollWidth <= e.clientWidth + 1)), 'The compatibility switch fits a 320px viewport.');
+    if (output) await page.screenshot({animations:'disabled',path:resolve(output,'preset-compatibility-mobile-320.png')});
+    await page.setViewportSize({width:1440,height:1000});
+    await page.evaluate(() => $('#blackboard_separate_narration').prop('checked', false).trigger('change'));
+    assert.equal(await mirror('separate_narration').isChecked(), false, 'Native settings synchronize the compatibility switch.');
     await panel.getByText('Private Turn options', {exact:true}).click();
     assert.equal(await mirror('private_format').isDisabled(), true);
     assert.equal(await mirror('private_mode').isDisabled(), true);
@@ -440,6 +457,9 @@ try {
     assert.equal((await settings()).privateReview, false);
     assert.equal(await mirror('private_mode').isDisabled(), true, 'Capability rejection also disables the mirrored mode selector.');
     assert.ok(await page.evaluate(() => notices.some(n => /unavailable/.test(n.text))));
+    await mirror('separate_narration').click();
+    assert.equal(await mirror('separate_narration').isChecked(), false, 'Compatibility also requires durable browser storage APIs.');
+    assert.equal((await settings()).separateNarration, false);
     await page.evaluate(() => delete navigator.locks);
     await mirror('private_review').check();
 
@@ -559,8 +579,11 @@ async function checkCampaignSettings(parent, origin) {
         await control('game_system').selectOption('universal');
         await panel.locator('[data-bb-tier="low"]').click();
         await control('private_mode').selectOption('light');
+        await control('separate_narration').check();
         await control('auto_scene_background').uncheck();
         assert.equal((await local()).simulationFidelity, 'low');
+        assert.equal((await local()).separateNarration, true);
+        assert.equal(await page.evaluate(() => context.extensionSettings.blackboard.separateNarration), false);
         assert.equal(await page.evaluate(() => context.extensionSettings.blackboard.simulationFidelity), 'ultra');
         assert.equal(await page.evaluate(() => registered.has('SetSceneBackground')), false);
         await panel.getByRole('tab', {name:'Instructions',exact:true}).click();
@@ -576,9 +599,11 @@ async function checkCampaignSettings(parent, origin) {
         assert.equal(await control('settings_scope').inputValue(), 'global');
         assert.notEqual(await control('custom_prompt').inputValue(), 'UNSAVED A DRAFT');
         assert.equal(await control('game_system').inputValue(), 'dnd5e');
+        assert.equal(await control('separate_narration').isChecked(), false);
         assert.equal(await page.evaluate(() => registered.has('SetSceneBackground')), true);
         await page.evaluate(async () => { Object.assign(context,campaignA); await emit('CHAT_CHANGED'); });
         assert.equal(await control('settings_scope').inputValue(), 'chat');
+        assert.equal(await control('separate_narration').isChecked(), true);
         assert.equal(await control('custom_prompt').inputValue(), 'UNSAVED A DRAFT');
         assert.equal((await local()).customPrompt, 'LOCAL QUALITY SENTINEL');
 
@@ -594,6 +619,7 @@ async function checkCampaignSettings(parent, origin) {
         await page.locator('#blackboard_open_dashboard').click();
         assert.equal(await control('settings_scope').inputValue(), 'chat');
         assert.equal(await control('private_mode').inputValue(), 'light');
+        assert.equal(await control('separate_narration').isChecked(), true, 'Serialized chat settings retain compatibility opt-in.');
         assert.equal(await control('game_system').inputValue(), 'universal');
         assert.equal(await control('auto_scene_background').isChecked(), false);
         await panel.getByRole('tab', {name:'Instructions',exact:true}).click();

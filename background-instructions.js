@@ -29,5 +29,5 @@ export function backgroundInstructions(settings) {
     if (!settings.autoSceneBackground) return '';
     const custom = typeof settings.customBackgroundPrompt === 'string' && settings.customBackgroundPrompt.trim()
         ? settings.customBackgroundPrompt : DEFAULT_BACKGROUND_SYSTEM_PROMPT;
-    return custom + (settings.functionTool === false ? '\n\nSimulation Blackboard is disabled. Use the established chat scene as your source; do not call or wait for UpdateBlackboard. Generate backgrounds directly in the ordinary turn.' : '') + '\n\n' + (settings.functionTool !== false && settings.privateReview ? PRIVATE_BACKGROUND_PROTOCOL : STANDARD_BACKGROUND_PROTOCOL);
+    return custom + (settings.functionTool === false ? '\n\nSimulation Blackboard is disabled. Use the established chat scene as your source; do not call or wait for UpdateBlackboard. Generate backgrounds directly in the ordinary turn.' : '') + '\n\n' + (settings.functionTool !== false && (settings.privateReview || settings.separateNarration) ? PRIVATE_BACKGROUND_PROTOCOL : STANDARD_BACKGROUND_PROTOCOL);
 }

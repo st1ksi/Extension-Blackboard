@@ -25,7 +25,7 @@
                     <span>Enable Simulation Blackboard</span>
                 </label>
             </div>
-            <small class="text-muted block marginBot10">Controls world-state updates, simulation instructions and Private Turns. Automatic scene backgrounds have their own switch.</small>
+            <small class="text-muted block marginBot10">Controls world-state updates, simulation instructions, Private Turns and separate narration. Automatic scene backgrounds have their own switch.</small>
             <div class="marginBot10">
                 <label class="checkbox_label" for="blackboard_auto_inject_prompt">
                     <input id="blackboard_auto_inject_prompt" type="checkbox">
@@ -45,10 +45,15 @@
             </div>
 
             <div class="marginBot10">
+                <label class="checkbox_label" for="blackboard_separate_narration"><input id="blackboard_separate_narration" type="checkbox"><span>Separate narration (preset compatibility)</span></label>
+                <small class="text-muted block">Prepare Blackboard privately, then write one tool-free response with your current preset. Adds requests. Preset trackers display the agreed results rather than running a second simulation. Independent of Private Turn checks; the same connection and browser requirements apply.</small>
+                <small id="blackboard_separate_status" class="text-muted block marginTop5" role="status" aria-live="polite"></small>
+            </div>
+            <div class="marginBot10">
                 <label class="checkbox_label"><input id="blackboard_private_review" type="checkbox"><span>Private Turns — checks before publication</span></label>
                 <small id="blackboard_execution_status" class="text-muted block"></small>
                 <small id="blackboard_private_capabilities" class="text-muted block marginTop5" role="status" aria-live="polite"></small>
-                <small class="text-muted block">Independent of fidelity and game system. Choose Heavy for specialized audits or Light for combined detection and correction. Requires a single-character Chat Completion chat with tools and Blackboard auto-injection. No streaming during the private cycle. When disabled: normal generation with an internal self-check.</small>
+                <small class="text-muted block">Independent of fidelity, game system and separate narration. Choose Heavy for specialized audits or Light for combined detection and correction. Requires a single-character Chat Completion chat with tools and Blackboard auto-injection. No streaming during the private cycle. When both private features are disabled: normal generation with an internal self-check.</small>
                 <label for="blackboard_private_mode">Review mode:</label>
                 <select id="blackboard_private_mode" class="text_pole">
                     <option value="heavy">Heavy — specialized audits and verification</option>

@@ -4,6 +4,32 @@ This file records development history, not a claim that every version was publis
 as a GitHub Release. Entries summarize previous notes. Dates are omitted where no
 release date was established. Current behavior is described in [README.md](README.md).
 
+## 1.16.0 — 2026-11-01 — Separate narration
+
+- Add optional **Separate narration (preset compatibility)** in native settings and
+  Control Panel. It defaults to off, independently of Private Turns and Global/This chat.
+- Separate Blackboard world preparation from procedural preset instructions. The
+  executor resolves time, resources and dice; one tool-free narrator uses the original
+  preset to present that outcome, without a second simulation or duplicate tool calls.
+- Check final outcomes, player agency, disclosure and required formatting separately.
+  Grounded findings allow up to two presentation rewrites without new dice or world time.
+- Keep internal tool continuations outside chat history. Publish one final answer
+  with one rollback snapshot; apply a deferred background only after successful review.
+- Checkpoint preparation, narration and received review reports. Resume reuses completed
+  stages; exports include narration, findings and retries. Browser-local recovery
+  requirements also apply when Private Turns reviews are disabled.
+- Add structural support for FF 5.4's trailing Internal States tracker and a complete
+  prior-tracker reference. Place the tool journal before the required HTML suffix.
+- Keep hidden reasoning/tracker data out of supplemental disclosure evidence. Objective
+  world facts do not by themselves authorize revealing secrets in narration or trackers.
+- Align the Slice of life option label across the registry and both interfaces.
+- Validate with 516 automated tests, isolated desktop/mobile UI checks, stock-host
+  integration checks and eight completed real-model play turns. Full FF gameplay
+  compatibility is not established; world-state consistency still depends on the model.
+- The clean separate workflow adds narration and its check after preparation/reviews.
+  Tool continuations, retries and rewrites may add calls; requests are not streamed.
+  Existing users retain the ordinary workflow unless they enable the new option.
+
 ## 1.15.0 — 2026-10-18 — Campaign direction and game profiles
 
 - Add independent Relationships & Social focus for relevant dispositions, memories,

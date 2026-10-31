@@ -5,6 +5,7 @@ import { installPrivateRunner, downloadPrivateReport, clearPrivateReport } from 
 import { GAME_SYSTEMS, gameSystem, hasCalculatedProgression, composeGamePrompt, resolveQualityPrompt, GENERIC_PROGRESSION_TOOL } from './game-profiles.js';
 import { executionInstructions, migrateExecutionSettings } from './turn-instructions.js';
 import { normalizePrivateReviewMode } from './private-modes.js';
+import { markCompatibilityInjection } from './preset-compatibility.js';
 import { privateTurnCapabilities } from './capabilities.js';
 import { createCampaignSettings } from './campaign-settings.js';
 import { normalizeCampaignLayers, CAMPAIGN_LAYER_OPTIONS } from './campaign-layers.js';
@@ -90,6 +91,7 @@ const defaultSettings = Object.freeze({
     autoInjectPrompt: true,
     historyRollback: true,
     privateReview: false,
+    separateNarration: false,
     privateReviewMode: 'heavy',
     executionModeVersion: 1,
     privateReviewFormat: 'diff',
@@ -115,6 +117,7 @@ const campaignSettings = createCampaignSettings({
     },
     normalize: settings => {
         settings.privateReviewMode = normalizePrivateReviewMode(settings.privateReviewMode);
+        settings.separateNarration = settings.separateNarration === true;
         Object.assign(settings, normalizeCampaignLayers(settings));
     },
     onSaveError: error => toastr.error(`Could not save chat settings: ${error.message}`, 'Simulation Blackboard'),
@@ -249,10 +252,10 @@ export function syncExtensionPrompt() {
     const settings = getSettings();
     $('#blackboard_composed_prompt_preview').val(composeGamePrompt(settings, FIDELITY_PRESETS).text + '\n\n' + executionInstructions(settings));
     setExtensionPromptSafe(PROMPT_INJECTION_KEY,
-        settings.functionTool && settings.autoInjectPrompt ? getActiveSystemPrompt() : '',
+        settings.functionTool && settings.autoInjectPrompt ? (settings.separateNarration ? markCompatibilityInjection(getActiveSystemPrompt(), 'world') : getActiveSystemPrompt()) : '',
         settings.functionTool && settings.autoInjectPrompt ? 0 : -1, 0, false, 0);
     setExtensionPromptSafe(BG_PROMPT_INJECTION_KEY,
-        settings.autoSceneBackground && settings.autoInjectPrompt ? getActiveBackgroundSystemPrompt() : '',
+        settings.autoSceneBackground && settings.autoInjectPrompt ? (settings.functionTool && settings.separateNarration ? markCompatibilityInjection(getActiveBackgroundSystemPrompt(), 'background') : getActiveBackgroundSystemPrompt()) : '',
         settings.autoSceneBackground && settings.autoInjectPrompt ? 0 : -1, 0, false, 0);
     boardInspector?.refresh();
 }
@@ -810,20 +813,46 @@ async function addSettingsDrawer() {
             persistSettings();
             syncExtensionPrompt();
         });
+        $('#blackboard_separate_narration').prop('checked', settings.separateNarration).on('change', function () {
+            if (!ensureSettingsCurrent()) return;
+            const capabilities = privateTurnCapabilities();
+            if ($(this).prop('checked') && !capabilities.supported) {
+                $(this).prop('checked', settings.separateNarration);
+                updateExecutionUI();
+                toastr.warning(capabilities.message.replaceAll('Private Turns', 'Separate narration'), 'Simulation Blackboard');
+                return;
+            }
+            settings.separateNarration = !!$(this).prop('checked');
+            updateExecutionUI();
+            persistSettings();
+            syncExtensionPrompt();
+        });
         function updateExecutionUI() {
             const capabilities = privateTurnCapabilities();
-            $('#blackboard_private_capabilities').text(capabilities.message);
+            const separated = settings.separateNarration;
+            $('#blackboard_private_capabilities').text(separated && !settings.privateReview
+                ? capabilities.message.replaceAll('Private Turns', 'Separate narration') : capabilities.message);
             $('#blackboard_turn_instructions').val(executionInstructions(settings));
             const privateOptionsDisabled = !settings.functionTool || !settings.privateReview || !capabilities.supported;
             $('#blackboard_private_mode').prop('disabled', privateOptionsDisabled);
-            $('#blackboard_private_format').prop('disabled', privateOptionsDisabled);
+            $('#blackboard_private_format').prop('disabled', !settings.functionTool || (!settings.privateReview && !separated) || !capabilities.supported);
+            $('#blackboard_separate_status').text(!settings.functionTool
+                ? 'Inactive while Simulation Blackboard is off. Your preference is retained.'
+                : !separated ? ''
+                : !settings.autoInjectPrompt ? 'Requires auto-injection. Enable it in Advanced settings.'
+                : !capabilities.supported ? 'Separate narration enabled but blocked in this browser. See the browser requirements below.'
+                : '');
             const reviewMode = normalizePrivateReviewMode(settings.privateReviewMode);
             $('#blackboard_private_mode').val(reviewMode);
             $('#blackboard_private_mode_desc').text(reviewMode === 'light'
                 ? 'Light: one combined detection pass records issues, then one correction pass addresses them. No additional model verification; local validation remains. Tool continuations or request retries may add calls.'
                 : 'Heavy: specialized audits, targeted repairs when needed, and model verification. Repairs can restart earlier checks; more model calls and a longer wait.');
             $('#blackboard_execution_status').text(!settings.functionTool
-                ? 'Simulation Blackboard is disabled. Private Turns are inactive; their settings are retained.'
+                ? 'Simulation Blackboard is disabled. Private Turns and separate narration are inactive; their settings are retained.'
+                : separated
+                ? capabilities.supported
+                    ? `Separate narration: private preparation, then one preset-formatted reply.${settings.privateReview ? ` Private Turns (${reviewMode === 'light' ? 'Light' : 'Heavy'}) check the preparation.` : ' No separate world audits; local validation remains.'}`
+                    : 'Separate narration enabled but blocked in this browser. No automatic fallback to standard generation.'
                 : settings.privateReview
                 ? capabilities.supported
                     ? `Private Turns (${reviewMode === 'light' ? 'Light' : 'Heavy'}): checks before publication. Available at every fidelity tier.`
@@ -998,10 +1027,13 @@ async function addSettingsDrawer() {
                     ? 'Tool enabled. Auto-injection is disabled: no background instructions are provided.'
                     : settings.functionTool && settings.privateReview
                         ? 'Enabled: the background request runs after the reviewed private turn is published.'
+                        : settings.functionTool && settings.separateNarration
+                        ? 'Enabled: the background request runs after the prepared turn is published.'
                         : 'Enabled: the background is generated and applied when the tool is called during a standard turn.');
         };
         updateBackgroundStatus();
         $('#blackboard_private_review').on('change.background', updateBackgroundStatus);
+        $('#blackboard_separate_narration').on('change.background', updateBackgroundStatus);
         $('#blackboard_auto_inject_prompt').on('change.background', updateBackgroundStatus);
         $('#blackboard_auto_scene_background').prop('checked', !!settings.autoSceneBackground).on('change', function () {
             if (!ensureSettingsCurrent()) return;
@@ -1054,6 +1086,7 @@ async function addSettingsDrawer() {
             $('#blackboard_auto_inject_prompt').prop('checked', settings.autoInjectPrompt);
             $('#blackboard_history_rollback').prop('checked', settings.historyRollback);
             $('#blackboard_private_review').prop('checked', settings.privateReview);
+            $('#blackboard_separate_narration').prop('checked', settings.separateNarration);
             $('#blackboard_private_format').val(settings.privateReviewFormat);
             $('#blackboard_auto_scene_background').prop('checked', !!settings.autoSceneBackground);
             updateExecutionUI();

@@ -7,16 +7,20 @@ import * as state from '../state.js';
 import { gameProfileText } from '../game-profile-text.js';
 import { browserEnvironment } from './browser-fixtures.mjs';
 import { reportDatabase } from './report-store-fixtures.mjs';
+import { createPrivateInterceptor } from '../private-host.js';
 
 // Loads the real extension entry point. Only SillyTavern/DOM services are doubles.
 async function host(initialSettings = {}, environment = browserEnvironment({indexedDB:reportDatabase()}), initialMetadata = null) {
     const handlers = new Map(), tools = new Map(), prompts = new Map(), errors = [];
-    const names = ['GENERATE_BEFORE_COMBINE_PROMPTS','MESSAGE_SENT','CHAT_CHANGED','MESSAGE_DELETED','MESSAGE_SWIPED','GENERATION_STARTED','MESSAGE_RECEIVED','TOOL_CALLS_PERFORMED'];
+    const names = ['GENERATE_BEFORE_COMBINE_PROMPTS','MESSAGE_SENT','CHAT_CHANGED','MESSAGE_DELETED','MESSAGE_SWIPED','GENERATION_STARTED','GENERATION_STOPPED','GENERATE_AFTER_DATA','MESSAGE_RECEIVED','TOOL_CALLS_PERFORMED'];
     const ctx = {
         chat: [], chatId:'Test campaign', characterId:0, characters:[{avatar:'hero.png'}], chatMetadata: structuredClone(initialMetadata ?? { variables: {} }),
         extensionSettings: { blackboard: { simulationFidelity: 'ultra', functionTool: true, autoInjectPrompt: true, historyRollback: true, ...initialSettings } },
         eventTypes: Object.fromEntries(names.map(n => [n, n])),
-        eventSource: { on: (event, f) => { const list = handlers.get(event) || []; list.push(f); handlers.set(event, list); } },
+        eventSource: {
+            on: (event, f) => { const list = handlers.get(event) || []; list.push(f); handlers.set(event, list); },
+            removeListener: (event, f) => handlers.set(event,(handlers.get(event)||[]).filter(handler=>handler!==f)),
+        },
         registerFunctionTool: t => tools.set(t.name, t), unregisterFunctionTool: name => tools.delete(name),
         setExtensionPrompt: (key, value) => prompts.set(key, value),
         saveChatDebounced() {}, saveMetadataDebounced() {}, saveSettingsDebounced() {},
@@ -74,7 +78,7 @@ async function host(initialSettings = {}, environment = browserEnvironment({inde
     const cache = new Map();
     async function linker(specifier) {
         if (cache.has(specifier)) return cache.get(specifier);
-        if (['./game-system-registry.js', './game-profile-text.js', './prompts/game-profile-bundles.js', './quality-source.js', './campaign-layers.js', './prompts/campaign-bundle.js', './campaign-settings.js', './board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js'].includes(specifier)) {
+        if (['./game-system-registry.js', './game-profile-text.js', './prompts/game-profile-bundles.js', './quality-source.js', './campaign-layers.js', './prompts/campaign-bundle.js', './campaign-settings.js', './board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js', './preset-compatibility.js', './narration-validation.js'].includes(specifier)) {
             const mod = new vm.SourceTextModule(await readFile(new URL('../' + specifier.slice(2), import.meta.url), 'utf8'), { context: sandbox, importModuleDynamically: dynamicImport });
             // Let the entry module link the shared dependency graph atomically.
             // Recursively calling link here races on modules reached by several imports.
@@ -1149,4 +1153,165 @@ test('settings writes are rejected during a chat-load gap and resume only after 
         assert.equal(JSON.stringify(globals),globalBefore);
         assert.equal(JSON.stringify(oldPreferences),oldBefore);
     }
+});
+
+test('separate narration is explicit opt-in and independent of Private Turn audits', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1});
+    const originalPrompt = h.prompts.get('blackboard_system_prompt');
+    assert.equal(h.ctx.extensionSettings.blackboard.separateNarration,false);
+    assert.equal(h.ui('#blackboard_separate_narration').prop('checked'),false);
+    h.ui('#blackboard_separate_narration').prop('checked',true).trigger('change');
+    assert.equal(h.ctx.extensionSettings.blackboard.separateNarration,true);
+    assert.equal(h.ctx.extensionSettings.blackboard.privateReview,false);
+    assert.equal(h.ui('#blackboard_private_mode').prop('disabled'),true,'Audit choices stay inactive without audits.');
+    assert.equal(h.ui('#blackboard_private_format').prop('disabled'),false,'Working history also applies to separated preparation.');
+    assert.match(h.ui('#blackboard_execution_status').text(),/Separate narration/);
+    h.ui('#blackboard_private_review').prop('checked',true).trigger('change');
+    assert.equal(h.ui('#blackboard_private_mode').prop('disabled'),false);
+    assert.equal(h.ctx.extensionSettings.blackboard.separateNarration,true);
+    h.ui('#blackboard_function_tool').prop('checked',false).trigger('change');
+    assert.equal(h.ctx.extensionSettings.blackboard.separateNarration,true,'Disabling the extension retains the opt-in preference.');
+    assert.equal(h.prompts.get('blackboard_system_prompt'),'');
+    assert.equal(h.ui('#blackboard_private_format').prop('disabled'),true);
+    assert.equal(h.tools.has('SetSceneBackground'),true,'Backgrounds retain their independent switch.');
+    h.ui('#blackboard_function_tool').prop('checked',true).trigger('change');
+    h.ui('#blackboard_separate_narration').prop('checked',false).trigger('change');
+    h.ui('#blackboard_private_review').prop('checked',false).trigger('change');
+    assert.equal(h.prompts.get('blackboard_system_prompt'),originalPrompt,'Turning compatibility off restores the original injected instructions.');
+});
+
+test('separate narration preference belongs to its settings scope and survives reload and branching', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1});
+    selectSettingsScope(h,'chat');
+    h.ui('#blackboard_separate_narration').prop('checked',true).trigger('change');
+    const local = h.ctx.chatMetadata.blackboard_settings.values;
+    assert.equal(local.separateNarration,true);
+    assert.equal(h.ctx.extensionSettings.blackboard.separateNarration,false);
+    const saved = structuredClone(h.ctx.chatMetadata);
+    selectSettingsScope(h,'global');
+    assert.equal(h.ui('#blackboard_separate_narration').prop('checked'),false);
+    selectSettingsScope(h,'chat');
+    assert.equal(h.ui('#blackboard_separate_narration').prop('checked'),true);
+    const reloaded = await host(h.ctx.extensionSettings.blackboard,browserEnvironment(),saved);
+    assert.equal(reloaded.ui('#blackboard_separate_narration').prop('checked'),true);
+    const original = campaignState(reloaded);
+    await switchCampaign(reloaded,{chatId:'Compatibility branch',chat:[],chatMetadata:structuredClone(saved)});
+    reloaded.ui('#blackboard_separate_narration').prop('checked',false).trigger('change');
+    await switchCampaign(reloaded,original);
+    assert.equal(reloaded.ui('#blackboard_separate_narration').prop('checked'),true);
+});
+
+test('separate narration opt-in rejects unavailable browser storage without erasing existing preferences', async () => {
+    const env = browserEnvironment({isSecureContext:false,navigator:{},crypto:{}});
+    const h = await host({privateReview:false,executionModeVersion:1},env);
+    h.ui('#blackboard_separate_narration').prop('checked',true).trigger('change');
+    assert.equal(h.ctx.extensionSettings.blackboard.separateNarration,false);
+    assert.equal(h.ui('#blackboard_separate_narration').prop('checked'),false);
+    assert.match(h.notices.at(-1),/Separate narration unavailable/);
+    const existing = await host({privateReview:false,separateNarration:true,executionModeVersion:1},env);
+    assert.equal(existing.ui('#blackboard_separate_narration').prop('checked'),true);
+    assert.match(existing.ui('#blackboard_execution_status').text(),/blocked/);
+    assert.equal(existing.ui('#blackboard_private_format').prop('disabled'),true);
+    existing.ui('#blackboard_separate_narration').prop('checked',false).trigger('change');
+    assert.equal(existing.ctx.extensionSettings.blackboard.separateNarration,false);
+    assert.match(existing.ui('#blackboard_execution_status').text(),/Standard/);
+});
+
+// Real registered runner + real host interceptor; only ST services/provider are doubles.
+async function separateLifecycle({rejectNarration=false}={}) {
+    const h=await host({separateNarration:true,privateReview:false,executionModeVersion:1,autoSceneBackground:true});
+    h.api.setBlackboard(privateBoard);await user(h,'Wait six seconds.');
+    const original=h.api.getBlackboard(),log=[],failures=[];
+    const tracker='<!-- GFX_START -->\n<internal_states>\n<details><summary>Internal States</summary>Observed: waiting; HP 20/20.</details>\n</internal_states>\n<!-- GFX_END -->';
+    const narrative='Six seconds pass. You keep the note.';
+    const final=narrative+'\n\n'+tracker;
+    const updated='[MISC #world_clock]\n- Time: Day 1, 02:15:06\n[MISC #simulation_processes]\n'+JSON.stringify({version:1,through:'Day 1, 02:15:06',processes:[]});
+    let worldStep=0;
+    Object.assign(h.ctx,{mainApi:'openai',chatCompletionSettings:{model:'offline-test',stream_openai:true},canPerformToolCalls:()=>true,
+        generate:async(type,options,dryRun)=>{
+            assert.equal(dryRun,true);log.push('dry-run');
+            await h.emit('GENERATE_AFTER_DATA',{prompt:[
+                {role:'system',content:'NATIVE_PRESET: write concise prose. <internal_states_module>Append this tracker: '+tracker+'</internal_states_module>'},
+                {role:'system',content:h.prompts.get('blackboard_system_prompt')},
+                {role:'system',content:h.prompts.get('blackboard_bg_prompt')},
+                {role:'user',content:'Wait six seconds.'},
+            ]},true);
+        },
+        saveReply:async({getMessage})=>{
+            assert.ok(log.includes('narration-check-pass'),'Publication must follow the successful final narration check.');
+            assert.match(h.api.getBlackboard(),/02:15:06/,'Commit precedes final message publication.');
+            log.push('publish');h.ctx.chat.push({is_user:false,mes:getMessage,swipe_id:0,swipes:[getMessage],swipe_info:[{extra:{}}]});
+            await h.emit('MESSAGE_RECEIVED',h.ctx.chat.length-1);
+        },
+        saveChat:async()=>{log.push('save-chat');},
+        ToolManager:{invokeFunctionTool:async(name,args)=>{
+            JSON.parse(args);
+            if(name==='RollTheDice'){log.push('dice');return 'The result is: 17. Individual rolls: 17';}
+            assert.equal(name,'SetSceneBackground');
+            assert.equal(log.filter(item=>item==='publish').length,1,'Background starts only after one published final reply.');
+            assert.match(h.ctx.chat.at(-1).mes,/Tool journal/);
+            log.push('background');return JSON.stringify({status:'success',url:'/user/images/offline-test.png'});
+        }},
+    });
+    const interceptor=createPrivateInterceptor({getContext:()=>h.ctx,run:h.runPrivate,enabled:()=>true,
+        makeRequest:async()=>async(messages,allowed)=>{
+            assert.equal(h.ctx.chat.length,1,'Intermediate work must not publish chat messages.');
+            assert.equal(h.api.getBlackboard(),original,'World draft cannot become canonical before final verification.');
+            const raw=messages.at(-1).content;
+            const packet=JSON.parse(raw.startsWith('{')?raw:raw.split('\n').slice(1).join('\n'));
+            if(packet.phase==='simulate'){
+                log.push('simulate');
+                if(!worldStep++)return {calls:[
+                    {name:'RollTheDice',arguments:{formula:'1d20'}},
+                    {name:'UpdateBlackboard',arguments:{base_revision:0,content:updated}},
+                    {name:'SetSceneBackground',arguments:{prompt:'The same quiet room six seconds later.'}},
+                ]};
+                return {text:narrative};
+            }
+            assert.equal(allowed.length,0,'Narration and its verifier must never receive tools.');
+            if(raw.startsWith('BLACKBOARD RESOLVED TURN')){log.push('narrate');return {text:final};}
+            if(rejectNarration){log.push('narration-check-invalid');return {text:'Malformed verifier JSON'};}
+            log.push('narration-check-pass');
+            return {text:JSON.stringify({version:1,revision:packet.revision,narration_id:packet.narration_id,verdict:'pass',checks:['outcomes','agency','disclosure','format'].map(aspect=>({aspect,status:'pass'})),issues:[]})};
+        },
+        onFailure:(error,detail)=>failures.push({message:error.message,...detail}),
+    });
+    await h.emit('GENERATION_STARTED','normal',{},false);
+    await interceptor([],10000,flag=>{assert.equal(flag,true);log.push('abort-native');},'normal');
+    return {h,log,failures,original,final,tracker};
+}
+
+test('registered compatibility pipeline publishes once after final check, keeps one snapshot and installs background afterward',async()=>{
+    const {h,log,failures,final,tracker}=await separateLifecycle();
+    assert.deepEqual(failures,[]);
+    assert.equal(log.filter(item=>item==='publish').length,1);
+    assert.equal(log.filter(item=>item==='dice').length,1);
+    assert.equal(log.filter(item=>item==='background').length,1);
+    assert.ok(log.indexOf('narration-check-pass')<log.indexOf('publish'));
+    assert.ok(log.indexOf('publish')<log.indexOf('background'));
+    assert.equal(h.ctx.chat.length,2);
+    const response=h.ctx.chat.at(-1);
+    assert.equal(response.extra.blackboard_snapshot,h.api.getBlackboard());
+    assert.equal(response.extra.tool_invocations,undefined);
+    assert.equal(response.extra.blackboard_tools.background.status,'success');
+    assert.ok(response.mes.endsWith(tracker),'The mandatory FF tracker remains last, after Blackboard receipts.');
+    assert.ok(response.mes.indexOf('Tool journal')<response.mes.indexOf('<!-- GFX_START -->'));
+    assert.equal(response.swipes[0],response.mes);
+    assert.equal(h.getReport().candidate,final);
+    assert.equal(h.getReport().status,'committed');
+    assert.equal(h.getReport().narration.review.verdict,'pass');
+    assert.doesNotMatch(JSON.stringify(h.ctx.chat),/resolvedCandidate|candidateVersions|narration_check|Malformed verifier/);
+});
+
+test('registered compatibility verifier failure prevents commit, publication and queued background execution',async()=>{
+    const {h,log,failures,original}=await separateLifecycle({rejectNarration:true});
+    assert.equal(failures.length,1);
+    assert.match(failures[0].message,/invalid output twice/);
+    assert.equal(log.filter(item=>item==='narration-check-invalid').length,2);
+    assert.equal(log.filter(item=>item==='dice').length,1,'A verifier format retry cannot repeat the random tool.');
+    assert.equal(log.includes('publish'),false);
+    assert.equal(log.includes('background'),false);
+    assert.equal(h.ctx.chat.length,1);
+    assert.equal(h.api.getBlackboard(),original);
+    assert.equal(h.getReport().status,'failed');
 });

@@ -46,6 +46,13 @@
             </section>
 
             <section class="bb-dash-section">
+                <label class="bb-dash-toggle"><span><strong>Separate narration (preset compatibility)</strong><small>Prepare Blackboard privately, then compose and check one tool-free reply with your preset. Adds requests.</small></span><input type="checkbox" data-bb-control="blackboard_separate_narration" role="switch" aria-describedby="bb-separate-narration-status"></label>
+                <p class="bb-dash-hint">Display preset trackers from agreed outcomes. Private Turn checks are optional; the same connection and browser requirements apply.</p>
+                <p id="bb-separate-narration-status" class="bb-dash-hint" data-bb-text="blackboard_separate_status" role="status" aria-live="polite"></p>
+                <p class="bb-dash-hint" data-bb-separate-warning hidden></p>
+            </section>
+
+            <section class="bb-dash-section">
                 <label class="bb-dash-toggle"><span><strong>Private Turns</strong><small>Separate checks and repairs before each reply.<br>More requests and a longer wait.</small></span><input type="checkbox" data-bb-control="blackboard_private_review" role="switch"></label>
                 <p class="bb-dash-hint" data-bb-private-warning hidden></p>
                 <label class="bb-dash-select-row"><span>Review mode</span><select data-bb-control="blackboard_private_mode"><option value="heavy">Heavy — specialized audits</option><option value="light">Light — detect, then correct</option></select></label>
@@ -73,7 +80,7 @@
             <details class="bb-dash-details bb-dash-advanced">
                 <summary>Advanced settings</summary>
                 <div class="bb-dash-details-body">
-                    <label class="bb-dash-toggle"><span><strong>Auto-inject instructions &amp; board</strong><small>Add simulation and background instructions to the system prompt. Required for Private Turns.</small></span><input type="checkbox" data-bb-control="blackboard_auto_inject_prompt" role="switch"></label>
+                    <label class="bb-dash-toggle"><span><strong>Auto-inject instructions &amp; board</strong><small>Add simulation and background instructions to the system prompt. Required for private preparation.</small></span><input type="checkbox" data-bb-control="blackboard_auto_inject_prompt" role="switch"></label>
                     <label class="bb-dash-toggle"><span><strong>Automatic history rollback</strong><small>Restore the board on message deletion, swipes and branching.</small></span><input type="checkbox" data-bb-control="blackboard_history_rollback" role="switch"></label>
                 </div>
             </details>

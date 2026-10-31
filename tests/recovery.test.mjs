@@ -44,6 +44,62 @@ test('execution migration marker does not strand old turns, but a checkbox chang
     }
 });
 
+test('adding the disabled separate-narration default preserves older private checkpoints exactly',async()=>{
+    for (const checkpoint of [null, {version:4,reviewMode:'heavy',draft:{gameSystem:'dnd5e',rolls:[{result:'17'}]},phase:'repair'}]) {
+        const h=harness(),record=JSON.parse(JSON.stringify(await h.create()));
+        record.checkpoint=checkpoint;
+        const saved=structuredClone(record),history=structuredClone(h.ctx.chat);
+        h.settings.separateNarration=false;
+        await h.api.validate(record,h.ctx);
+        assert.deepEqual(record,saved,'Validation must not rewrite a legacy draft, its rolls, or its pending stage.');
+        assert.deepEqual(h.ctx.chat,history);
+        assert.equal(h.board,'baseline');
+    }
+});
+
+test('disabled separate-narration migration composes with legacy execution, profile and review defaults',async()=>{
+    const h=harness(),record=await h.create();
+    record.checkpoint={version:4,draft:{baseline:'baseline'}};
+    Object.assign(h.settings,{separateNarration:false,executionModeVersion:1,privateReviewMode:'heavy',gameSystem:'dnd5e'});
+    await h.api.validate(record,h.ctx);
+    h.settings.privateReviewMode='light';
+    await assert.rejects(h.api.validate(record,h.ctx),/settings/,'The opt-in migration must not mask an actual review-mode change.');
+});
+
+test('changing from ordinary preparation to separate narration cannot resume the old pipeline',async()=>{
+    for (const originalValue of [undefined,false]) {
+        const h=harness();
+        if (originalValue!==undefined) h.settings.separateNarration=originalValue;
+        const record=await h.create();
+        record.checkpoint={version:4,draft:{rolls:[{result:'17'}]},phase:'repair'};
+        h.settings.separateNarration=true;
+        await assert.rejects(h.api.validate(record,h.ctx),/settings/);
+        if (originalValue===undefined) delete h.settings.separateNarration;
+        else h.settings.separateNarration=originalValue;
+        await h.api.validate(record,h.ctx);
+    }
+});
+
+test('a separate-narration checkpoint requires its actual enabled mode across serialization',async()=>{
+    const h=harness();h.settings.separateNarration=true;
+    const record=JSON.parse(JSON.stringify(await h.create()));
+    record.checkpoint={version:1,kind:'separate_narration',phase:'narration_check',world:{draft:{rolls:[{result:'17'}]}}};
+    await h.api.validate(record,h.ctx);
+    h.settings.separateNarration=false;
+    await assert.rejects(h.api.validate(record,h.ctx),/settings/);
+    delete h.settings.separateNarration;
+    await assert.rejects(h.api.validate(record,h.ctx),/settings/);
+    h.settings.separateNarration=true;
+    await h.api.validate(record,h.ctx);
+});
+
+test('default migration never treats a wrapped narration checkpoint as a legacy ordinary turn',async()=>{
+    const h=harness(),record=await h.create();
+    record.checkpoint={version:1,kind:'separate_narration',phase:'narrate'};
+    h.settings.separateNarration=false;
+    await assert.rejects(h.api.validate(record,h.ctx),/settings/);
+});
+
 test('pre-profile checkpoint accepts only the newly added D&D default, not a changed campaign profile',async()=>{
     const h=harness(),record=await h.create();
     record.checkpoint={draft:{baseline:'baseline'}};

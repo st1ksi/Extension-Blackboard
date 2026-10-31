@@ -36,7 +36,7 @@ export function createPrivateInterceptor({ getContext, run, enabled, makeRequest
     interceptor.resume = async () => {
         if (!recovery || active) return;
         try {
-            if (!enabled()) throw new Error('Enable Blackboard Private Turns to resume the saved turn.');
+            if (!enabled()) throw new Error('Enable Blackboard Private Turns or Separate narration to resume the saved turn.');
             await recovery.withLock(getContext(), async scope => {
                 const record = await recovery.load(scope);
                 if (!record) return;

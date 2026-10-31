@@ -33,6 +33,8 @@ dependency build is needed for the Blackboard itself.
   settings, independent of game system, fidelity and review mode.
 - **Optional private reviews:** Heavy mode uses focused detection, targeted repair
   and verification; Light mode combines detection into one pass, then corrects findings.
+- **Optional preset compatibility:** prepare the world separately, then compose
+  one tool-free answer with your active preset and check the resulting presentation.
 - **Recovery:** checkpointed private work, confirmed dice and pending requests can
   survive provider errors and page reloads.
 - **History rollback:** saved board snapshots and block ages follow deletion,
@@ -61,6 +63,7 @@ Optional requirements:
 | Actual model-requested dice | Install [D&D Dice](https://github.com/SillyTavern/Extension-Dice) and enable its **Use function tool** setting. Blackboard does not provide its own RNG. |
 | Automatic backgrounds | Configure SillyTavern's [Image Generation](https://docs.sillytavern.app/extensions/stable-diffusion/) extension and enable **Automatic scene backgrounds** here. |
 | Private Turns | Single-character chat; secure browser context; Web Locks, IndexedDB, SHA-256 and `crypto.randomUUID`; storage available for checkpoints. |
+| Separate narration | The same browser, chat and checkpoint requirements as Private Turns; independent of whether world reviews are enabled. |
 
 On the server computer, `http://localhost` can provide the required secure context.
 On a phone or another LAN device, use **HTTPS with a certificate trusted by that
@@ -103,9 +106,20 @@ SillyTavern core files or user settings from another installation.
 Older experimental installations with Blackboard core hooks need those obsolete
 hooks removed; a clean SillyTavern needs only this extension.
 
-## Updating to 1.15.0
+## Updating to 1.16.0
 
-This release changes assembled simulation instructions. Finish any paused Private
+**Separate narration is off by default.** Existing chats keep their workflow; enable
+the option globally or for This chat when you want the additional presentation stages.
+It does not automatically enable Heavy/Light world reviews.
+
+Finish in-flight work before updating, or export the checkpoint and retain the old
+extension and effective settings if you need to resume it. Checkpoints are validated
+against their original context and instructions; an update cannot silently convert
+them to a different workflow. Published answers and board snapshots remain intact.
+
+### Upgrading from before 1.15.0
+
+Version 1.15.0 changed assembled simulation instructions. Finish any paused Private
 Turn before updating, or export its draft and retain the previous extension and
 settings for continuation. Checkpoints are not silently rewritten to new rules.
 Published messages, their board snapshots and campaign facts are not converted.
@@ -129,8 +143,68 @@ system, tone or style instructions. After updating, reload SillyTavern and inspe
    initializes an empty board; open **Objective Blackboard** in the wand menu to inspect it.
 
 Fresh defaults: simulation, auto-injection, rollback and backgrounds enabled;
-Mid fidelity; D&D profile; Private Turns disabled; Heavy review mode; diff history. Existing
+Mid fidelity; D&D profile; Private Turns and Separate narration disabled; Heavy review mode; diff history. Existing
 installations retain compatible saved choices through migration.
+
+## Separate narration (experimental preset compatibility)
+
+Leave **Separate narration (preset compatibility)** off for the existing workflow.
+Enable it in the Control Panel or native settings when a preset runs its own
+reasoning routine or appends a state tracker that is interrupted by tool calls.
+It is independent of **Private Turns** and can be saved globally or for this chat.
+
+The optional workflow has one owner for world changes:
+
+1. A private executor receives Blackboard's quality/game instructions and the
+   assembled native prompt as reference data. It resolves the action, dice and
+   elapsed interval once; it does not execute the preset's procedural reasoning
+   tasks or HTML-output instructions as another competing simulation.
+2. When Private Turns are enabled, their selected Heavy or Light cycle reviews
+   the prepared transition. With reviews off, the executor self-checks and local
+   state invariants still apply; this does not silently enable Heavy/Light audits.
+3. One tool-free narrator receives the original active preset and the agreed
+   outcome. It handles prose and tracker presentation. It cannot call tools,
+   resolve another interval or independently tick NPC agendas/relationships.
+4. A separate read-only check compares this final response, including HTML
+   trackers, with the resolved outcome. Confirmed discrepancies can trigger up
+   to two presentation rewrites; the world and dice remain unchanged.
+
+The clean path adds **two requests** after world preparation/review: narration
+and its check. Rewrites, tool continuations and API retries can add more. Requests
+are not streamed. The selected model, connection and quality budget are unchanged.
+
+Only this extension's explicitly marked injections are separated; arbitrary
+preset text is not deleted by keyword, and no preset files, regex settings or
+SillyTavern core files are changed. The original context/macros are assembled once
+per turn. Internal tool continuations remain outside the visible chat, so they
+do not increase the message depth used by a preset's context-saving regex.
+
+The known FF 5.4 Internal States structure gets additional completeness checks:
+one full trailing tracker with both GFX markers, and the last saved complete
+tracker is supplied as historical reference if it was excluded from the prompt.
+The public tool journal is inserted before that suffix. This is a structural
+adapter, not a complete implementation of every FF module or version.
+
+Blackboard remains the authority. A preset tracker displays the agreed result;
+it does not become a second independent world ledger. Hidden objective facts do
+not become public merely because a template contains a slot for them. The narrator
+must keep undiscovered fields undisclosed. Previously displayed tracker content
+does not automatically become a character's knowledge.
+
+Both preparation and presentation stages are checkpointed. Use **Resume** after
+provider errors; a completed preparation is reused without new dice or another
+world interval. **Export private turn** includes narration, findings and retries.
+Only one final board snapshot is attached to the published answer. The existing
+limitations for group chats, Continue, secure contexts and cross-device recovery
+also apply here.
+
+Validation includes synthetic tool/provider responses and FF 5.4 templates, plus
+eight completed real-model gameplay replies with Ultra and Private Turns off.
+That play test did not enable the FF preset: full FF gameplay compatibility
+remains unverified. No material change to prepared outcomes was found in those
+replies, but stale duplicate world records still occurred. Separate narration
+checks presentation; it does not replace world reviews or guarantee model compliance.
+A preset that insists on independently resolving a second world can still conflict.
 
 ## Campaign direction
 
@@ -480,7 +554,7 @@ world state and snapshot history; they travel with the host's saved/exported cha
 
 For reports, include versions, connection/model, fidelity, game profile, focus,
 world style, tone, narration, custom-quality usage, Private Turns state and review
-mode, reproduction steps and error text. Review private exports for hidden
+mode, Separate narration state, active preset/version, reproduction steps and error text. Review private exports for hidden
 campaign information before sharing. History is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Development
