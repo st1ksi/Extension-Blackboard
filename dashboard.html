@@ -30,6 +30,9 @@
                 </div>
                 <label class="bb-dash-select-row bb-dash-game-row"><span>Game system</span><select data-bb-control="blackboard_game_system"><option value="universal">Universal</option><option value="dnd5e">D&amp;D 5e (2014 / 2024)</option><option value="coc7e">Call of Cthulhu 7e</option><option value="pf2e">Pathfinder 2e Remaster</option><option value="gurps4e">GURPS 4e</option><option value="cyberpunk_red">Cyberpunk RED</option><option value="vtm5e">Vampire: The Masquerade V5</option><option value="swade">Savage Worlds (SWADE)</option></select></label>
                 <p id="bb-game-system-desc" class="bb-dash-hint" data-bb-text="blackboard_game_system_desc" aria-live="polite"></p>
+                <label class="bb-dash-toggle"><span><strong>Contextual choice rolls</strong><small>Resolve meaningful open choices, including small NPC reactions, after established facts, motives and rules.</small></span><input type="checkbox" data-bb-control="blackboard_contextual_choices" role="switch" aria-describedby="bb-contextual-choices-desc"></label>
+                <p id="bb-contextual-choices-desc" class="bb-dash-hint">World-based weights; no bias for or against the player. Adds tool continuations when used. Independent of quality, game system and Private Turns.</p>
+                <p class="bb-dash-hint" data-bb-text="blackboard_choice_status" role="status" aria-live="polite"></p>
                 <label class="bb-dash-select-row bb-dash-focus-row"><span>Simulation focus</span><select data-bb-control="blackboard_simulation_focus" aria-describedby="bb-focus-desc"><option value="general">General</option><option value="relationships_social">Relationships &amp; Social</option></select></label>
                 <p id="bb-focus-desc" class="bb-dash-hint" data-bb-text="blackboard_simulation_focus_desc"></p>
                 <details class="bb-dash-details bb-dash-campaign-direction">
@@ -88,7 +91,7 @@
         </div>
 
         <div id="bb-pane-instructions" role="tabpanel" aria-labelledby="bb-tab-instructions" class="bb-dash-pane" hidden>
-            <p class="bb-dash-hint bb-dash-intro">Quality, game rules, campaign direction and execution are appended as separate instruction sets. Selecting a layer does not rewrite quality instructions. Backgrounds use their own prompt. Save edited text using its own Save button.</p>
+            <p class="bb-dash-hint bb-dash-intro">Quality, game rules, campaign direction, optional choice resolution and execution are appended as separate instruction sets. Selecting a layer does not rewrite quality instructions. Backgrounds use their own prompt. Save edited text using its own Save button.</p>
             <details class="bb-dash-details bb-dash-editor" open>
                 <summary>Quality instructions</summary>
                 <div class="bb-dash-details-body">
@@ -117,12 +120,16 @@
                 <div class="bb-dash-details-body"><p class="bb-dash-hint">Active focus, world style, tone and narration. General with all directions set to “No additional” adds no campaign layer.</p><p class="bb-dash-hint" data-bb-text="blackboard_campaign_layers_desc" role="status" aria-live="polite"></p><label class="bb-dash-sr" for="bb-campaign-prompt">Campaign layer instructions</label><textarea id="bb-campaign-prompt" data-bb-control="blackboard_campaign_layers_preview" rows="10" readonly></textarea></div>
             </details>
             <details class="bb-dash-details bb-dash-editor">
+                <summary>Contextual choices <span class="bb-dash-readonly">Read-only</span></summary>
+                <div class="bb-dash-details-body"><p class="bb-dash-hint">Separate opt-in rules for grounded unresolved choices. They do not replace game mechanics or change the quality prompt.</p><label class="bb-dash-sr" for="bb-choice-prompt">Contextual choice instructions</label><textarea id="bb-choice-prompt" data-bb-control="blackboard_choice_prompt_preview" rows="10" readonly></textarea></div>
+            </details>
+            <details class="bb-dash-details bb-dash-editor">
                 <summary>Execution mode <span class="bb-dash-readonly">Read-only</span></summary>
                 <div class="bb-dash-details-body"><p class="bb-dash-hint">Appended after quality and game rules. Private requests also receive the task for their current stage.</p><label class="bb-dash-sr" for="bb-execution-prompt">Execution mode instructions</label><textarea id="bb-execution-prompt" data-bb-control="blackboard_turn_instructions" rows="10" readonly></textarea></div>
             </details>
             <details class="bb-dash-details bb-dash-editor">
                 <summary>Composed instructions <span class="bb-dash-readonly">Read-only</span></summary>
-                <div class="bb-dash-details-body"><p class="bb-dash-hint">Saved quality text followed by the game profile, active campaign layers and execution instructions. Board macros remain unexpanded; live board monitoring and background instructions are separate. Unsaved edits are not included.</p><label class="bb-dash-sr" for="bb-composed-prompt">Composed simulation instructions</label><textarea id="bb-composed-prompt" data-bb-control="blackboard_composed_prompt_preview" rows="14" readonly></textarea></div>
+                <div class="bb-dash-details-body"><p class="bb-dash-hint">Saved quality text followed by the game profile, active campaign layers, optional choice-resolution instructions and execution instructions. Board macros remain unexpanded; live board monitoring and background instructions are separate. Unsaved edits are not included.</p><label class="bb-dash-sr" for="bb-composed-prompt">Composed simulation instructions</label><textarea id="bb-composed-prompt" data-bb-control="blackboard_composed_prompt_preview" rows="14" readonly></textarea></div>
             </details>
         </div>
     </div>

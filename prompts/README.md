@@ -1,6 +1,7 @@
 # Instruction sources and responsibilities
 
-The composition is **quality → game profile → optional campaign layers → execution**.
+The composition is **quality → game profile → optional campaign layers → optional
+contextual choice resolution → execution**.
 Automatic scene backgrounds have a separate prompt and enabled gate. Campaign
 selection never replaces a substring of the quality source during generation.
 
@@ -72,6 +73,16 @@ migration metadata, not a hidden genre default or runtime text-edit recipe.
 
 ## Execution, previews and saved work
 
+`../choice-resolution.js` supplies a separate default-off contextual decision
+policy. It uses the existing dice tool for grounded, locally meaningful alternatives
+after canon, character constraints and system procedures have been applied. It does
+not modify quality sources, profiles, campaign-layer text or the preparation horizon.
+The UI exposes its own preview. Frozen private snapshots retain its enabled exact
+text/criteria separately; existing aspect audits receive relevant evidence criteria
+without an added pass or permission to reroll. A missing descriptor means off, as
+in older saved turns. Turning it on or changing its text invalidates a paused turn's
+instruction fingerprint; adding the disabled setting alone does not.
+
 Standard, Light and Heavy own the current task, tools and output format. Existing
 review stages receive relevant frozen criteria; no social/genre stages are added.
 Reach/Light checks include the selected style/tone's applicable positive preparation
@@ -79,7 +90,7 @@ duties. Narration/Light checks include the selected prose task; prose-only repai
 cannot add facts, change outcomes or rewrite the board. No event or mood quota is
 introduced, and already defined scenes may remain unchanged.
 Repair corrects the same resolved interval. The UI's Composed instructions preview
-shows quality + game + campaign + execution using saved preferences; board expansion,
+shows quality + game + campaign + optional choice resolution + execution using saved preferences; board expansion,
 live monitor and separate backgrounds are outside that preview.
 
 Private snapshot v2 freezes exact quality, game-profile and layer texts. A previous

@@ -8,6 +8,7 @@ import { gameProfileText } from '../game-profile-text.js';
 import { browserEnvironment } from './browser-fixtures.mjs';
 import { reportDatabase } from './report-store-fixtures.mjs';
 import { createPrivateInterceptor } from '../private-host.js';
+import { choiceResolutionInstructions, freezeChoiceResolution } from '../choice-resolution.js';
 
 // Loads the real extension entry point. Only SillyTavern/DOM services are doubles.
 async function host(initialSettings = {}, environment = browserEnvironment({indexedDB:reportDatabase()}), initialMetadata = null) {
@@ -78,7 +79,7 @@ async function host(initialSettings = {}, environment = browserEnvironment({inde
     const cache = new Map();
     async function linker(specifier) {
         if (cache.has(specifier)) return cache.get(specifier);
-        if (['./dice-engine.js', './dice-panel.js', './game-system-registry.js', './game-profile-text.js', './prompts/game-profile-bundles.js', './quality-source.js', './campaign-layers.js', './prompts/campaign-bundle.js', './campaign-settings.js', './board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js', './preset-compatibility.js', './narration-validation.js'].includes(specifier)) {
+        if (['./choice-resolution.js', './dice-engine.js', './dice-panel.js', './game-system-registry.js', './game-profile-text.js', './prompts/game-profile-bundles.js', './quality-source.js', './campaign-layers.js', './prompts/campaign-bundle.js', './campaign-settings.js', './board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js', './preset-compatibility.js', './narration-validation.js'].includes(specifier)) {
             const mod = new vm.SourceTextModule(await readFile(new URL('../' + specifier.slice(2), import.meta.url), 'utf8'), { context: sandbox, importModuleDynamically: dynamicImport });
             // Let the entry module link the shared dependency graph atomically.
             // Recursively calling link here races on modules reached by several imports.
@@ -861,6 +862,155 @@ async function switchCampaign(h, campaign) {
 function selectSettingsScope(h, scope) {
     h.ui('#blackboard_settings_scope').val(scope).trigger('change');
 }
+
+test('contextual choice opt-in changes live instructions without rewriting quality, profiles, drafts or canon', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1,autoSceneBackground:false,
+        simulationFidelity:'custom',customPrompt:'CUSTOM QUALITY: preserve player agency and established facts.',
+        gameSystem:'universal',simulationFocus:'relationships_social',campaignStyle:'social_intrigue'});
+    h.api.setBlackboard('[SCENE #hall]\nContents (COMPLETE): one chair.\n[ENTITIES #broker]\nCautious; remembers the prior refusal.');
+    await user(h, 'I offer a modest trial transaction.');
+    h.api.syncExtensionPrompt();
+    const before = {prompt:h.prompts.get('blackboard_system_prompt'),board:h.api.getBlackboard(),
+        snapshot:h.ctx.chat[0].extra.blackboard_snapshot,quality:h.ctx.extensionSettings.blackboard.customPrompt,
+        profile:h.ui('#blackboard_game_profile_preview').val(),campaign:h.ui('#blackboard_campaign_layers_preview').val()};
+    const qualityDraft = before.quality + '\nUNSAVED QUALITY DRAFT';
+    const backgroundDraft = 'UNSAVED BACKGROUND DRAFT';
+    h.ui('#blackboard_custom_prompt').val(qualityDraft);
+    h.ui('#blackboard_background_custom_prompt').val(backgroundDraft);
+    assert.equal(h.ctx.extensionSettings.blackboard.contextualChoices,false);
+    const instructions = choiceResolutionInstructions({contextualChoices:true});
+    assert.ok(instructions.length > 100);
+    assert.equal(h.prompts.get('blackboard_system_prompt').includes(instructions),false);
+    h.ui('#blackboard_contextual_choices').prop('checked',true).trigger('change');
+    assert.equal(h.ctx.extensionSettings.blackboard.contextualChoices,true);
+    assert.equal(h.ui('#blackboard_choice_prompt_preview').val(),instructions);
+    assert.ok(h.prompts.get('blackboard_system_prompt').includes(instructions));
+    const composed = h.ui('#blackboard_composed_prompt_preview').val();
+    assert.ok(composed.indexOf(instructions) > composed.indexOf(before.profile));
+    assert.ok(composed.indexOf(instructions) > composed.indexOf(before.campaign));
+    assert.ok(composed.indexOf(instructions) < composed.indexOf('EXECUTION MODE — STANDARD'));
+    assert.equal(h.ctx.extensionSettings.blackboard.customPrompt,before.quality);
+    assert.equal(h.ui('#blackboard_custom_prompt').val(),qualityDraft);
+    assert.equal(h.ui('#blackboard_background_custom_prompt').val(),backgroundDraft);
+    assert.equal(h.ui('#blackboard_game_profile_preview').val(),before.profile);
+    assert.equal(h.ui('#blackboard_campaign_layers_preview').val(),before.campaign);
+    assert.equal(h.api.getBlackboard(),before.board);
+    assert.equal(h.ctx.chat[0].extra.blackboard_snapshot,before.snapshot);
+    h.ui('#blackboard_contextual_choices').prop('checked',false).trigger('change');
+    assert.equal(h.prompts.get('blackboard_system_prompt'),before.prompt,'Turning the layer off restores the exact ordinary injection.');
+    assert.equal(h.ui('#blackboard_custom_prompt').val(),qualityDraft);
+    assert.equal(h.ui('#blackboard_background_custom_prompt').val(),backgroundDraft);
+});
+
+test('contextual choice preference follows Global/This chat and survives reload and independent branches', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1});
+    selectSettingsScope(h,'chat');
+    h.ui('#blackboard_contextual_choices').prop('checked',true).trigger('change');
+    assert.equal(h.ctx.chatMetadata.blackboard_settings.values.contextualChoices,true);
+    assert.equal(h.ctx.extensionSettings.blackboard.contextualChoices,false);
+    const saved = JSON.parse(JSON.stringify(h.ctx.chatMetadata));
+    const reloaded = await host(h.ctx.extensionSettings.blackboard,undefined,saved);
+    assert.equal(reloaded.ui('#blackboard_contextual_choices').prop('checked'),true);
+    assert.ok(reloaded.prompts.get('blackboard_system_prompt').includes(choiceResolutionInstructions({contextualChoices:true})));
+    const original = campaignState(reloaded);
+    await switchCampaign(reloaded,{chatId:'Choice branch',chat:[],chatMetadata:structuredClone(saved)});
+    reloaded.ui('#blackboard_contextual_choices').prop('checked',false).trigger('change');
+    assert.equal(reloaded.ctx.chatMetadata.blackboard_settings.values.contextualChoices,false);
+    await switchCampaign(reloaded,original);
+    assert.equal(reloaded.ui('#blackboard_contextual_choices').prop('checked'),true);
+    selectSettingsScope(reloaded,'global');
+    assert.equal(reloaded.ui('#blackboard_contextual_choices').prop('checked'),false);
+    assert.equal(reloaded.prompts.get('blackboard_system_prompt').includes(choiceResolutionInstructions({contextualChoices:true})),false);
+    selectSettingsScope(reloaded,'chat');
+    assert.equal(reloaded.ui('#blackboard_contextual_choices').prop('checked'),true);
+});
+
+test('contextual choices stay out of backgrounds-only mode and disabling the layer retains normal dice', async () => {
+    const h = await host({privateReview:false,executionModeVersion:1,contextualChoices:true,autoSceneBackground:true});
+    const instructions = choiceResolutionInstructions({contextualChoices:true});
+    assert.ok(h.prompts.get('blackboard_system_prompt').includes(instructions));
+    h.ui('#blackboard_function_tool').prop('checked',false).trigger('change');
+    const background = h.prompts.get('blackboard_bg_prompt');
+    const ordinaryBackgroundOnly = await host({privateReview:false,executionModeVersion:1,
+        contextualChoices:false,functionTool:false,autoSceneBackground:true});
+    assert.equal(h.ctx.extensionSettings.blackboard.contextualChoices,true);
+    assert.equal(h.prompts.get('blackboard_system_prompt'),'');
+    assert.equal(background,ordinaryBackgroundOnly.prompts.get('blackboard_bg_prompt'));
+    assert.equal(background.includes(instructions),false);
+    assert.equal(h.tools.has('SetSceneBackground'),true);
+    assert.match(h.ui('#blackboard_choice_status').text(),/Inactive/);
+    h.ui('#blackboard_function_tool').prop('checked',true).trigger('change');
+    h.ui('#blackboard_contextual_choices').prop('checked',false).trigger('change');
+    assert.equal(h.ctx.extensionSettings.blackboard.contextualChoices,false);
+    const receipt = JSON.parse(await h.tools.get('RollBlackboardDice').action({formula:'1d1+4'}));
+    assert.equal(receipt.status,'success');
+    assert.equal(receipt.total,5);
+    assert.equal(receipt.source,'simulation-blackboard');
+    assert.equal(h.prompts.get('blackboard_system_prompt').includes(instructions),false);
+});
+
+test('contextual choice receipts and exact policy survive the private pipeline without audit or repair rerolls', async () => {
+    // Synthetic provider choices test transport/state ownership, not an LLM's probability judgement.
+    const h = await host({privateReview:true,privateReviewMode:'light',executionModeVersion:1,
+        contextualChoices:true,autoSceneBackground:false});
+    h.api.setBlackboard(privateBoard + '\n[ENTITIES #broker]\nCautious; deciding whether to offer a limited trial.');
+    await user(h, 'I offer a limited trial transaction.');
+    const originalBoard = h.api.getBlackboard();
+    const frozen = freezeChoiceResolution({contextualChoices:true});
+    const faces = ['Offer a limited trial','Decline for now','Decline for now'];
+    const phases = [], requests = [], received = [];
+    let simulationStep = 0, chosen, candidate;
+    const result = await h.runPrivate({type:'normal',api:'openai',canTools:true,
+        messages:[{role:'system',content:h.prompts.get('blackboard_system_prompt')},
+            {role:'user',content:'I offer a limited trial transaction.'}],
+        invoke:async (name,args) => {
+            assert.equal(name,'RollBlackboardDice');
+            assert.equal(received.length,0,'The same choice must be drawn only once.');
+            const raw = await h.tools.get(name).action(args);
+            const receipt = JSON.parse(raw); received.push(receipt);
+            assert.equal(receipt.source,'simulation-blackboard');
+            assert.equal(receipt.total,null);
+            chosen = receipt.face_values[0];
+            assert.ok(faces.includes(chosen));
+            candidate = 'The broker decides: ' + chosen + '.';
+            return raw;
+        },
+        request:async (messages,allowed) => {
+            const p = privatePayload(messages); phases.push(p.phase);
+            requests.push({phase:p.phase,allowed:[...allowed]});
+            assert.equal(h.api.getBlackboard(),originalBoard,'Only the private draft changes before commit.');
+            if (p.phase === 'simulate') {
+                assert.ok(messages.some(m => typeof m.content === 'string' && m.content.includes(frozen.instructions)));
+                if (simulationStep++ === 0) return {calls:[{name:'RollBlackboardDice',arguments:{faces,face_type:'symbol',count:1,label:'Broker response'}}]};
+                assert.equal(p.rolls.length,1);
+                assert.equal(JSON.stringify(JSON.parse(p.rolls[0].result)),JSON.stringify(received[0]));
+                if (simulationStep === 2) return {calls:[{name:'UpdateBlackboard',arguments:{base_revision:p.head_revision,
+                    content:'[ENTITIES #broker]\nCautious; current decision: ' + chosen + '. Grounds: limited practical risk.'}}]};
+                return {text:candidate};
+            }
+            assert.ok(messages[0].content.includes(frozen.reviewCriteria.combined),'Audits and correction receive the frozen applicable policy.');
+            if (p.phase === 'review') {
+                assert.deepEqual([...allowed],[]);
+                return pass(p);
+            }
+            assert.deepEqual([...allowed],['UpdateBlackboard']);
+            return {text:JSON.stringify({revision:p.head_revision,candidate_id:p.candidate_id,candidate,issue_resolutions:[]})};
+        }});
+    assert.deepEqual(phases,['simulate','simulate','simulate','review','repair']);
+    assert.equal(received.length,1);
+    assert.ok(requests.filter(r=>r.phase==='simulate').every(r=>r.allowed.includes('RollBlackboardDice')));
+    result.commit(); h.ctx.chat.push({is_user:false,mes:candidate});
+    await h.emit('MESSAGE_RECEIVED',h.ctx.chat.length-1); await result.afterSave(); result.release();
+    const report = h.getReport();
+    assert.equal(JSON.stringify(report.campaignLayers.choiceResolution),JSON.stringify(frozen));
+    assert.equal(report.rolls.length,1);
+    assert.equal(JSON.stringify(JSON.parse(report.rolls[0].result)),JSON.stringify(received[0]));
+    assert.ok(h.api.getBlackboard().includes('current decision: ' + chosen));
+    assert.equal(report.candidate,candidate);
+    assert.equal(h.ctx.chat.at(-1).extra.blackboard_snapshot,h.api.getBlackboard());
+    assert.equal(JSON.stringify(h.ctx.chatMetadata).includes('choiceResolution'),false,'Exact private policy belongs to the report, not board metadata.');
+    assert.equal(JSON.stringify(h.ctx.chat).includes(frozen.instructions),false);
+});
 
 test('campaign directions update the real composed prompt without changing canon or the saved quality source', async () => {
     const h = await host({privateReview:false,executionModeVersion:1,autoSceneBackground:false});

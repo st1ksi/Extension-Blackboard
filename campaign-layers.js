@@ -3,6 +3,7 @@ import { SYSTEM_BUNDLES } from './prompts/system-bundles.js';
 import { resolveQualityPrompt, QUALITY_SEPARATION_VERSION } from './quality-source.js';
 import { GAME_SYSTEMS, gameSystem } from './game-system-registry.js';
 import { gameProfileText } from './game-profile-text.js';
+import { freezeChoiceResolution, validateChoiceResolution, choiceReviewCriteria } from './choice-resolution.js';
 
 const option = (id, label, description) => Object.freeze({ id, label, description });
 export const CAMPAIGN_LAYER_OPTIONS = Object.freeze({
@@ -105,6 +106,7 @@ export function freezeCampaignLayers(settings = {}, quality = resolveQualityProm
     const profileId = gameSystem(settings);
     const pieces = [];
     const active = !isDefaultCampaignLayers(selected);
+    const choiceResolution = freezeChoiceResolution(settings);
     if (active) pieces.push(CAMPAIGN_PROMPTS.contract);
     if (selected.simulationFocus === 'relationships_social') {
         pieces.push(CAMPAIGN_PROMPTS['relationships-social'], CAMPAIGN_PROMPTS['social-depth-' + tier]);
@@ -121,6 +123,7 @@ export function freezeCampaignLayers(settings = {}, quality = resolveQualityProm
         tier,
         instructions: pieces.join('\n\n'),
         reviewCriteria: reviewCriteria(selected),
+        ...(choiceResolution ? { choiceResolution } : {}),
     };
 }
 
@@ -128,6 +131,7 @@ function frozenOrSettings(value) {
     const snapshotShaped = value && typeof value === 'object' && ('instructions' in value || 'reviewCriteria' in value);
     if (!snapshotShaped) return freezeCampaignLayers(value);
     if (value.version !== 2) throw new Error('Unsupported campaign-layer snapshot version: ' + String(value.version));
+    validateChoiceResolution(value.choiceResolution);
     const selected = normalizeCampaignLayers(value);
     if (typeof value.instructions !== 'string' || value.qualitySeparationVersion !== QUALITY_SEPARATION_VERSION
         || value.qualitySource?.revision !== QUALITY_SEPARATION_VERSION
@@ -145,7 +149,8 @@ function frozenOrSettings(value) {
 export function getCampaignReviewCriteria(settingsOrFrozen = {}, aspect = 'combined') {
     const snapshot = frozenOrSettings(settingsOrFrozen);
     const key = ['light', 'all', 'detect'].includes(aspect) ? 'combined' : aspect;
-    return typeof snapshot.reviewCriteria[key] === 'string' ? snapshot.reviewCriteria[key] : '';
+    return [typeof snapshot.reviewCriteria[key] === 'string' ? snapshot.reviewCriteria[key] : '',
+        choiceReviewCriteria(snapshot.choiceResolution, key)].filter(Boolean).join('\n\n');
 }
 
 /** Canonical exact representation for equality, not a security hash. */
@@ -160,6 +165,7 @@ export function campaignLayersFingerprint(settingsOrFrozen = {}) {
         tier: snapshot.tier,
         instructions: snapshot.instructions,
         reviewCriteria: Object.fromEntries(['time', 'continuity', 'reach', 'narration', 'combined'].map(key => [key, getCampaignReviewCriteria(snapshot, key)])),
+        ...(snapshot.choiceResolution ? { choiceResolution: snapshot.choiceResolution } : {}),
     });
 }
 

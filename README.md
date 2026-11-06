@@ -1,7 +1,7 @@
 # Simulation Blackboard
 
-Version **1.17.0** — built-in standard and custom dice, with no separate dice
-extension required.
+Version **1.18.0** — optional contextual choice rolls for grounded, locally
+meaningful decisions and NPC reactions.
 
 Persistent world state for roleplay in [SillyTavern](https://github.com/SillyTavern/SillyTavern).
 The extension gives the model a separate **Objective Blackboard** for locations,
@@ -40,6 +40,9 @@ dependency build is needed for the Blackboard itself.
   one tool-free answer with your active preset and check the resulting presentation.
 - **Built-in dice:** real browser randomness for model tools and a manual roller,
   including custom sides/faces, pools, keep/drop, exploding dice and advantage/disadvantage.
+- **Optional contextual choice rolls:** a separate instruction layer for grounded,
+  locally meaningful open decisions, including NPC reactions to unexpected input.
+  Uses the existing dice tool without changing the quality source or adding review stages.
 - **Recovery:** checkpointed private work, confirmed dice and pending requests can
   survive provider errors and page reloads.
 - **History rollback:** saved board snapshots and block ages follow deletion,
@@ -111,7 +114,40 @@ SillyTavern core files or user settings from another installation.
 Older experimental installations with Blackboard core hooks need those obsolete
 hooks removed; a clean SillyTavern needs only this extension.
 
-## Updating to 1.17.0
+## Updating to 1.18.0
+
+**Contextual choice rolls is off by default.** Enable it in native settings or the
+Control Panel, globally or for This chat. Its exact instructions have a separate
+read-only preview and appear in Composed instructions after the game/campaign layers.
+The option works with every quality/game profile and ordinary, Light/Heavy or
+Separate narration preparation. It requires simulation and prompt auto-injection;
+the preference can be retained while these are disabled.
+
+The model first applies established facts, dispositions and campaign mechanics.
+When several plausible responses remain, it can predefine short symbolic outcomes
+and coarse relative weights, then use `RollBlackboardDice` to select one. A locally
+meaningful conversational response is enough; the choice need not affect the whole
+world. There is no per-turn roll quota, automatic 50/50 rule or required mixture of
+player-favorable and unfavorable results. A difficult judgment alone does not prove
+that the world contains a random tie.
+
+System checks and deterministic off-screen procedures retain priority. This option
+does not reopen fixed inventories, root truths, prior outcomes or player-authored
+voluntary decisions. Meaningful selected decisions are kept in their authoritative
+owner blocks; no extra global alternatives registry is required. Private checks
+receive relevant frozen criteria and cannot request a new choice roll. Enabling or
+changing the policy while a private turn is paused requires restoring its original
+settings to resume it. Adding the disabled default alone preserves older off-policy
+checkpoints.
+
+The engine validates dice requests and receipts; the model still judges the
+plausibility and relative likelihood of alternatives. Instructions cannot guarantee
+unbiased judgments. Used choices can add tool continuations and waiting time.
+
+Finish active work before replacing files and reload afterward. Existing users
+retain their ordinary workflow unless they enable the new option.
+
+### Updating from before 1.17.0
 
 The built-in `RollBlackboardDice` is available whenever Simulation Blackboard is
 enabled, including Standard, Light/Heavy Private Turns and Separate narration.

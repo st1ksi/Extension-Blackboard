@@ -9,6 +9,7 @@ import { markCompatibilityInjection } from './preset-compatibility.js';
 import { privateTurnCapabilities } from './capabilities.js';
 import { createCampaignSettings } from './campaign-settings.js';
 import { normalizeCampaignLayers, CAMPAIGN_LAYER_OPTIONS } from './campaign-layers.js';
+import { choiceResolutionInstructions } from './choice-resolution.js';
 import { migrateQualitySeparation, QUALITY_SEPARATION_VERSION } from './quality-source.js';
 import { installSettingsDashboard } from './dashboard.js';
 import { installBoardInspector } from './inspector.js';
@@ -94,6 +95,7 @@ const defaultSettings = Object.freeze({
     historyRollback: true,
     privateReview: false,
     separateNarration: false,
+    contextualChoices: false,
     privateReviewMode: 'heavy',
     executionModeVersion: 1,
     privateReviewFormat: 'diff',
@@ -120,6 +122,7 @@ const campaignSettings = createCampaignSettings({
     normalize: settings => {
         settings.privateReviewMode = normalizePrivateReviewMode(settings.privateReviewMode);
         settings.separateNarration = settings.separateNarration === true;
+        settings.contextualChoices = settings.contextualChoices === true;
         Object.assign(settings, normalizeCampaignLayers(settings));
     },
     onSaveError: error => toastr.error(`Could not save chat settings: ${error.message}`, 'Simulation Blackboard'),
@@ -253,6 +256,14 @@ export function getActiveBackgroundSystemPrompt() {
 export function syncExtensionPrompt() {
     const settings = getSettings();
     $('#blackboard_composed_prompt_preview').val(composeGamePrompt(settings, FIDELITY_PRESETS).text + '\n\n' + executionInstructions(settings));
+    $('#blackboard_choice_prompt_preview').val(choiceResolutionInstructions(settings) || 'Contextual choice rolls are disabled. No additional choice-resolution instructions.');
+    $('#blackboard_choice_status').text(!settings.contextualChoices
+        ? 'Disabled: ordinary game checks remain available.'
+        : !settings.functionTool
+            ? 'Preference saved. Inactive while Simulation Blackboard is off.'
+            : !settings.autoInjectPrompt
+                ? 'Preference saved. Requires auto-injected instructions.'
+                : 'Enabled: resolve meaningful open choices using existing facts and real dice. May add tool continuations.');
     setExtensionPromptSafe(PROMPT_INJECTION_KEY,
         settings.functionTool && settings.autoInjectPrompt ? (settings.separateNarration ? markCompatibilityInjection(getActiveSystemPrompt(), 'world') : getActiveSystemPrompt()) : '',
         settings.functionTool && settings.autoInjectPrompt ? 0 : -1, 0, false, 0);
@@ -999,6 +1010,16 @@ async function addSettingsDrawer() {
             toastr.info('Game profile changed. Existing chat state has not been converted.');
         });
 
+        $('#blackboard_contextual_choices').on('change', function () {
+            if (!ensureSettingsCurrent()) return;
+            const qualityDraft = $('#blackboard_custom_prompt').val();
+            settings.contextualChoices = !!$(this).prop('checked');
+            updateFidelityUI();
+            $('#blackboard_custom_prompt').val(qualityDraft);
+            persistSettings();
+            syncExtensionPrompt();
+        });
+
         for (const [id, key] of Object.entries({
             blackboard_simulation_focus: 'simulationFocus',
             blackboard_campaign_style: 'campaignStyle',
@@ -1109,6 +1130,7 @@ async function addSettingsDrawer() {
             $('#blackboard_history_rollback').prop('checked', settings.historyRollback);
             $('#blackboard_private_review').prop('checked', settings.privateReview);
             $('#blackboard_separate_narration').prop('checked', settings.separateNarration);
+            $('#blackboard_contextual_choices').prop('checked', settings.contextualChoices);
             $('#blackboard_private_format').val(settings.privateReviewFormat);
             $('#blackboard_auto_scene_background').prop('checked', !!settings.autoSceneBackground);
             updateExecutionUI();

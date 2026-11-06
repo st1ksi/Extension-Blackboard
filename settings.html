@@ -98,6 +98,16 @@
                 <small class="text-muted block">Mechanics only; no setting lore or automatic character conversion. Only D&amp;D uses a built-in advancement calculator. Other systems record their own progression.</small>
             </div>
 
+            <div class="blackboard-contextual-choices marginBot10">
+                <label class="checkbox_label" for="blackboard_contextual_choices">
+                    <input id="blackboard_contextual_choices" type="checkbox" aria-describedby="blackboard_contextual_choices_desc">
+                    <span>Contextual choice rolls</span>
+                </label>
+                <small id="blackboard_contextual_choices_desc" class="text-muted block marginTop5">Resolve meaningful open choices, including small NPC reactions, with dice after applying established facts, motives and game rules. Weights follow the world rather than favoring or opposing the player. Adds tool continuations when used.</small>
+                <small class="text-muted block">Independent of quality, game system and Private Turns.</small>
+                <small id="blackboard_choice_status" class="text-muted block marginTop5" role="status" aria-live="polite"></small>
+            </div>
+
             <div class="blackboard-campaign-focus marginBot10">
                 <label for="blackboard_simulation_focus"><b>Simulation focus:</b></label>
                 <select id="blackboard_simulation_focus" class="text_pole" aria-describedby="blackboard_simulation_focus_desc">
@@ -182,7 +192,7 @@
                     <div class="inline-drawer-icon fa-solid interactable down fa-circle-chevron-down" tabindex="0"></div>
                 </div>
                 <div class="inline-drawer-content" style="display: none;">
-                    <small>Quality instructions for the selected settings scope; game and campaign layers are appended separately without rewriting this text. Automatically matches the Fidelity Tier. Contains simulation laws and the <code>&#123;&#123;getvar::world_blackboard&#125;&#125;</code> macro.</small>
+                    <small>Quality instructions for the selected settings scope; game, campaign and optional choice-resolution layers are appended separately without rewriting this text. Automatically matches the Fidelity Tier. Contains simulation laws and the <code>&#123;&#123;getvar::world_blackboard&#125;&#125;</code> macro.</small>
                     <small id="blackboard_custom_system_notice" class="text-muted block"></small>
                     <textarea id="blackboard_custom_prompt" class="text_pole textarea_compact blackboard_prompt_textarea" rows="12"></textarea>
                     <div class="marginTop5 flex-row gap5">
@@ -221,11 +231,22 @@
 
             <div class="inline-drawer marginBot10">
                 <div class="inline-drawer-toggle inline-drawer-header">
+                    <span>Contextual Choice Instructions (read-only)</span>
+                    <div class="inline-drawer-icon fa-solid interactable down fa-circle-chevron-down" tabindex="0"></div>
+                </div>
+                <div class="inline-drawer-content" style="display: none;">
+                    <small>Separate opt-in rules for grounded unresolved choices. They do not replace game mechanics or change the quality prompt.</small>
+                    <textarea id="blackboard_choice_prompt_preview" class="text_pole textarea_compact blackboard_prompt_textarea" rows="8" readonly></textarea>
+                </div>
+            </div>
+
+            <div class="inline-drawer marginBot10">
+                <div class="inline-drawer-toggle inline-drawer-header">
                     <span>Composed Simulation Instructions (read-only)</span>
                     <div class="inline-drawer-icon fa-solid interactable down fa-circle-chevron-down" tabindex="0"></div>
                 </div>
                 <div class="inline-drawer-content" style="display: none;">
-                    <small>Saved quality text followed by the game profile, active campaign layers and execution instructions. Board macros remain unexpanded; live board monitoring and background instructions are separate. Unsaved edits are not included.</small>
+                    <small>Saved quality text followed by the game profile, active campaign layers, optional choice-resolution instructions and execution instructions. Board macros remain unexpanded; live board monitoring and background instructions are separate. Unsaved edits are not included.</small>
                     <textarea id="blackboard_composed_prompt_preview" class="text_pole textarea_compact blackboard_prompt_textarea" rows="14" readonly></textarea>
                 </div>
             </div>

@@ -4,6 +4,26 @@ This file records development history, not a claim that every version was publis
 as a GitHub Release. Entries summarize previous notes. Dates are omitted where no
 release date was established. Current behavior is described in [README.md](README.md).
 
+## 1.18.0 — 2026-11-06 — Contextual choice rolls
+
+- Add an independent, default-off contextual resolution instruction layer using
+  the existing `RollBlackboardDice` tool. Apply it to meaningful local choices and
+  NPC reactions as well as larger decisions, after established causes and mechanics.
+- Require pre-roll grounded alternatives and coarse likelihood weights; distinguish
+  genuine open possibilities from model uncertainty. Preserve decisions, closed
+  contents, preparation timing, player agency and deterministic off-screen procedures.
+  No positive/negative outcome quota or per-line randomization.
+- Add synchronized native/Control Panel switches, Global/This chat scope and a
+  separate read-only instruction preview without rewriting quality or campaign text.
+- Freeze enabled policy text and aspect criteria in private work/reports; preserve
+  actual receipts and existing no-new-dice review/repair/narration boundaries.
+  Disabled defaults retain old checkpoint compatibility; changed policies reject resume.
+- Validate with 558 automated tests, stock-host API checks and real desktop/320px
+  UI checks on an isolated fixture. Private-flow tests use actual local dice with
+  a simulated provider; real-model semantic adherence remains to be evaluated.
+- Promote local 1.17.1 to release 1.18.0 without runtime changes and restore release
+  auto-update metadata. The optional policy remains off by default.
+
 ## 1.17.0 — 2026-11-06 — Built-in dice
 
 - Add dependency-free `RollBlackboardDice` with unbiased browser crypto randomness

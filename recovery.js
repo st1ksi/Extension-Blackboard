@@ -111,6 +111,14 @@ export function createRecovery({ getContext, getBoard, setBoard, settings, getAc
         // Unrelated historical default fields retain their narrow compatibility
         // rules only after the separated instruction descriptor has matched.
         const compatibleSettings = [{ ...currentSettings }];
+        // A missing opt-in field in an older checkpoint means off. Enabling the
+        // independent policy changes frozen instructions and is never migrated.
+        if (currentSettings.contextualChoices === false && !savedLayers.choiceResolution) {
+            for (const settings of [...compatibleSettings]) {
+                const previous = { ...settings }; delete previous.contextualChoices;
+                compatibleSettings.push(previous);
+            }
+        }
         // The new opt-in does not invalidate older ordinary/private checkpoints.
         // Enabling it is a real pipeline change and must never migrate silently.
         if (!currentSettings.separateNarration && record.checkpoint?.kind !== 'separate_narration') {
