@@ -51,6 +51,16 @@
                 <small class="text-muted block">Prepare Blackboard privately, then write one tool-free response with your current preset. Adds requests. Preset trackers display the agreed results rather than running a second simulation. Independent of Private Turn checks; the same connection and browser requirements apply.</small>
                 <small id="blackboard_separate_status" class="text-muted block marginTop5" role="status" aria-live="polite"></small>
             </div>
+            <div class="blackboard-contextual-choices marginBot10">
+                <label class="checkbox_label" for="blackboard_contextual_choices">
+                    <input id="blackboard_contextual_choices" type="checkbox" aria-describedby="blackboard_contextual_choices_desc">
+                    <span>Contextual choice rolls</span>
+                </label>
+                <small id="blackboard_contextual_choices_desc" class="text-muted block marginTop5">Resolve meaningful open choices, including small NPC reactions, with dice after applying established facts, motives and game rules. Weights follow the world rather than favoring or opposing the player. Adds tool continuations when used.</small>
+                <small class="text-muted block">Independent of quality, game system and Private Turns.</small>
+                <small id="blackboard_choice_status" class="text-muted block marginTop5" role="status" aria-live="polite"></small>
+            </div>
+
             <div class="marginBot10">
                 <label class="checkbox_label"><input id="blackboard_private_review" type="checkbox"><span>Private Turns — checks before publication</span></label>
                 <small id="blackboard_execution_status" class="text-muted block"></small>
@@ -96,16 +106,6 @@
                 </select>
                 <small id="blackboard_game_system_desc" class="text-muted block marginTop5"></small>
                 <small class="text-muted block">Mechanics only; no setting lore or automatic character conversion. Only D&amp;D uses a built-in advancement calculator. Other systems record their own progression.</small>
-            </div>
-
-            <div class="blackboard-contextual-choices marginBot10">
-                <label class="checkbox_label" for="blackboard_contextual_choices">
-                    <input id="blackboard_contextual_choices" type="checkbox" aria-describedby="blackboard_contextual_choices_desc">
-                    <span>Contextual choice rolls</span>
-                </label>
-                <small id="blackboard_contextual_choices_desc" class="text-muted block marginTop5">Resolve meaningful open choices, including small NPC reactions, with dice after applying established facts, motives and game rules. Weights follow the world rather than favoring or opposing the player. Adds tool continuations when used.</small>
-                <small class="text-muted block">Independent of quality, game system and Private Turns.</small>
-                <small id="blackboard_choice_status" class="text-muted block marginTop5" role="status" aria-live="polite"></small>
             </div>
 
             <div class="blackboard-campaign-focus marginBot10">

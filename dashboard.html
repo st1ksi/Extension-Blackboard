@@ -30,9 +30,6 @@
                 </div>
                 <label class="bb-dash-select-row bb-dash-game-row"><span>Game system</span><select data-bb-control="blackboard_game_system"><option value="universal">Universal</option><option value="dnd5e">D&amp;D 5e (2014 / 2024)</option><option value="coc7e">Call of Cthulhu 7e</option><option value="pf2e">Pathfinder 2e Remaster</option><option value="gurps4e">GURPS 4e</option><option value="cyberpunk_red">Cyberpunk RED</option><option value="vtm5e">Vampire: The Masquerade V5</option><option value="swade">Savage Worlds (SWADE)</option></select></label>
                 <p id="bb-game-system-desc" class="bb-dash-hint" data-bb-text="blackboard_game_system_desc" aria-live="polite"></p>
-                <label class="bb-dash-toggle"><span><strong>Contextual choice rolls</strong><small>Resolve meaningful open choices, including small NPC reactions, after established facts, motives and rules.</small></span><input type="checkbox" data-bb-control="blackboard_contextual_choices" role="switch" aria-describedby="bb-contextual-choices-desc"></label>
-                <p id="bb-contextual-choices-desc" class="bb-dash-hint">World-based weights; no bias for or against the player. Adds tool continuations when used. Independent of quality, game system and Private Turns.</p>
-                <p class="bb-dash-hint" data-bb-text="blackboard_choice_status" role="status" aria-live="polite"></p>
                 <label class="bb-dash-select-row bb-dash-focus-row"><span>Simulation focus</span><select data-bb-control="blackboard_simulation_focus" aria-describedby="bb-focus-desc"><option value="general">General</option><option value="relationships_social">Relationships &amp; Social</option></select></label>
                 <p id="bb-focus-desc" class="bb-dash-hint" data-bb-text="blackboard_simulation_focus_desc"></p>
                 <details class="bb-dash-details bb-dash-campaign-direction">
@@ -54,6 +51,12 @@
                 <p class="bb-dash-hint">Display preset trackers from agreed outcomes. Private Turn checks are optional; the same connection and browser requirements apply.</p>
                 <p id="bb-separate-narration-status" class="bb-dash-hint" data-bb-text="blackboard_separate_status" role="status" aria-live="polite"></p>
                 <p class="bb-dash-hint" data-bb-separate-warning hidden></p>
+            </section>
+
+            <section class="bb-dash-section">
+                <label class="bb-dash-toggle"><span><strong>Contextual choice rolls</strong><small>Resolve meaningful open choices, including small NPC reactions, after established facts, motives and rules.</small></span><input type="checkbox" data-bb-control="blackboard_contextual_choices" role="switch" aria-describedby="bb-contextual-choices-desc"></label>
+                <p id="bb-contextual-choices-desc" class="bb-dash-hint">World-based weights; no bias for or against the player. Adds tool continuations when used. Independent of quality, game system and Private Turns.</p>
+                <p class="bb-dash-hint" data-bb-text="blackboard_choice_status" role="status" aria-live="polite"></p>
             </section>
 
             <section class="bb-dash-section">

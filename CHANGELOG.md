@@ -4,6 +4,14 @@ This file records development history, not a claim that every version was publis
 as a GitHub Release. Entries summarize previous notes. Dates are omitted where no
 release date was established. Current behavior is described in [README.md](README.md).
 
+## 1.19.0 — 2026-11-06 — Settings layout
+
+- Move Contextual choice rolls below Separate narration and above Private Turns
+  in both settings views. Give it a standalone Control Panel section with the same
+  dividers and spacing as the adjacent options. No instruction or simulation changes.
+- Promote the approved local 1.18.1 layout to release 1.19.0 and restore release
+  auto-update metadata.
+
 ## 1.18.0 — 2026-11-06 — Contextual choice rolls
 
 - Add an independent, default-off contextual resolution instruction layer using

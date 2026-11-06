@@ -1,7 +1,6 @@
 # Simulation Blackboard
 
-Version **1.18.0** — optional contextual choice rolls for grounded, locally
-meaningful decisions and NPC reactions.
+Version **1.19.0** — clearer settings layout for contextual choice rolls.
 
 Persistent world state for roleplay in [SillyTavern](https://github.com/SillyTavern/SillyTavern).
 The extension gives the model a separate **Objective Blackboard** for locations,
@@ -114,7 +113,11 @@ SillyTavern core files or user settings from another installation.
 Older experimental installations with Blackboard core hooks need those obsolete
 hooks removed; a clean SillyTavern needs only this extension.
 
-## Updating to 1.18.0
+## Updating to 1.19.0
+
+Contextual choice rolls now has its own section directly below Separate narration
+and above Private Turns, using the same Control Panel dividers. Native settings use
+the same order. This layout adjustment does not change the resolution instructions.
 
 **Contextual choice rolls is off by default.** Enable it in native settings or the
 Control Panel, globally or for This chat. Its exact instructions have a separate
