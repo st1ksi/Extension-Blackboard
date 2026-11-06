@@ -13,6 +13,8 @@ import { migrateQualitySeparation, QUALITY_SEPARATION_VERSION } from './quality-
 import { installSettingsDashboard } from './dashboard.js';
 import { installBoardInspector } from './inspector.js';
 import { createPanelWorkspace } from './panel-workspace.js';
+import { DICE_TOOL_NAME, DICE_PARAMETERS, DICE_TOOL_DESCRIPTION, rollBlackboardDice } from './dice-engine.js';
+import { installDicePanel } from './dice-panel.js';
 import { PROMPT_ULTRA } from './prompts/ultra.js';
 export { PROMPT_ULTRA };
 import { parseBlocks, serializeBlocks, applyUpdate, validateBoard, readProgression, reconcileAges, staleBlocks, budget, findSnapshot, writeSnapshot, redactToolLog } from './state.js';
@@ -30,7 +32,7 @@ const TEMPLATE_PATH = 'third-party/Extension-Blackboard';
 const VARIABLE_NAME = 'world_blackboard';
 const PROMPT_INJECTION_KEY = 'blackboard_system_prompt';
 const BG_PROMPT_INJECTION_KEY = 'blackboard_bg_prompt';
-let boardInspector, settingsDashboard, panelWorkspace;
+let boardInspector, settingsDashboard, panelWorkspace, dicePanel;
 let refreshSettingsUI = () => {};
 
 
@@ -495,6 +497,7 @@ function registerFunctionTools() {
         if (typeof unregisterFunctionTool === 'function') {
             unregisterFunctionTool('UpdateBlackboard');
             unregisterFunctionTool('SetSceneBackground');
+            unregisterFunctionTool(DICE_TOOL_NAME);
         }
 
         if (typeof registerFunctionTool !== 'function') {
@@ -504,6 +507,24 @@ function registerFunctionTools() {
 
         // 1. UpdateBlackboard Tool
         if (settings.functionTool) {
+            registerFunctionTool({
+                name: DICE_TOOL_NAME,
+                displayName: 'Roll Blackboard Dice',
+                description: DICE_TOOL_DESCRIPTION,
+                parameters: structuredClone(DICE_PARAMETERS),
+                action: async args => {
+                    if (!getSettings().functionTool) return JSON.stringify({ status: 'error', rolled: false, message: 'Simulation Blackboard is disabled.' });
+                    try { return JSON.stringify(rollBlackboardDice(args)); }
+                    catch (error) {
+                        // A partial random result must remain visible evidence, not
+                        // an invitation to quietly roll the same check again.
+                        return JSON.stringify({ status: 'error', code: error.code ?? 'DICE_ERROR',
+                            rolled: error.uncertain === true, uncertain: error.uncertain === true,
+                            message: error.message, ...(error.partialReceipt ? { partialReceipt: error.partialReceipt } : {}) });
+                    }
+                },
+                formatMessage: () => '',
+            });
             registerFunctionTool({
                 name: 'UpdateBlackboard',
                 displayName: 'Update World Blackboard',
@@ -695,7 +716,8 @@ async function addWandButton() {
         $('#blackboard_control_wand_button').on('click', function () {
             panelWorkspace?.openSettings({ opener: this });
         });
-        $('#blackboard_wand_button, #blackboard_control_wand_button').on('keydown', function (event) {
+        $('#blackboard_dice_wand_button').on('click', function () { dicePanel?.open({ opener: this }); });
+        $('#blackboard_wand_button, #blackboard_control_wand_button, #blackboard_dice_wand_button').on('keydown', function (event) {
             if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); $(this).trigger('click'); }
         });
     } catch (err) {
@@ -1106,6 +1128,24 @@ async function addSettingsDrawer() {
         $('#blackboard_open_from_settings').on('click', () => {
             openBlackboardModal();
         });
+        $('#blackboard_open_dice').on('click', function () { dicePanel?.open({ opener: this }); });
+        const diceScope = () => {
+            const ctx = SillyTavern.getContext();
+            return JSON.stringify([ctx.account ?? ctx.userHandle ?? '',
+                ctx.groupId ?? ctx.characters?.[ctx.characterId]?.avatar ?? ctx.characterId,
+                ctx.chatId ?? ctx.getCurrentChatId?.() ?? null]);
+        };
+        dicePanel = installDicePanel({ html: await renderExtensionTemplateAsync(TEMPLATE_PATH, 'dice-panel'),
+            roll: rollBlackboardDice, getScope: diceScope,
+            publish: ({ text, scope }) => {
+                if (scope !== diceScope()) throw new Error('Chat changed. Roll in the current chat before adding a result.');
+                const input = document.getElementById('send_textarea');
+                if (!input) throw new Error('The message input is unavailable. Copy the result instead.');
+                input.value = `${input.value}${input.value.trim() ? '\n\n' : ''}${text}`;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.focus();
+            },
+        });
         settingsDashboard = installSettingsDashboard({ html: await renderExtensionTemplateAsync(TEMPLATE_PATH, 'dashboard'), presets: FIDELITY_PRESETS });
         if (settingsDashboard) {
             boardInspector = installBoardInspector({ html: await renderExtensionTemplateAsync(TEMPLATE_PATH, 'inspector'),
@@ -1143,6 +1183,7 @@ jQuery(async function () {
                 syncExtensionPrompt();
             });
             on('CHAT_CHANGED', () => {
+                dicePanel?.refresh();
                 refreshSettingsUI();
                 registerFunctionTools();
                 clearPrivateReport();

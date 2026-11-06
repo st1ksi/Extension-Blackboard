@@ -1,4 +1,5 @@
 import { retryInfo, retryRequest } from './retry.js';
+import { DICE_TOOL_NAME, DICE_PARAMETERS, DICE_TOOL_DESCRIPTION } from './dice-engine.js';
 // Request transport using stock SillyTavern exports. No global fetch patches,
 // setting changes, chat tool logs, or core modifications.
 export function normalizeBlackboardResponse(data, text, fallbackModel) {
@@ -28,6 +29,13 @@ export function createPrivateRequest({ settings, getModel, createParameters, con
         data.stream = false;
         data.n = 1;
         data.tools = JSON.parse(JSON.stringify((data.tools || []).filter(t => allowedTools.includes(t.function?.name))));
+        if (allowedTools.includes(DICE_TOOL_NAME)) {
+            // This tool is executed locally by our host. Decorators cannot make
+            // private preparation depend on an external dice extension.
+            data.tools = data.tools.filter(t => t.function?.name !== DICE_TOOL_NAME);
+            data.tools.push({ type: 'function', function: { name: DICE_TOOL_NAME,
+                description: DICE_TOOL_DESCRIPTION, parameters: structuredClone(DICE_PARAMETERS) } });
+        }
         for (const tool of data.tools) {
             if (tool.function.name === 'RollTheDice') {
                 const formula = tool.function.parameters?.properties?.formula;

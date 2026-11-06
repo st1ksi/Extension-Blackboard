@@ -1,6 +1,7 @@
 import { createSetupGate } from './setup-gate.js';
 import { makePrivateRequest } from './private-api.js';
 import { createRecovery, recoveryPanel } from './recovery.js';
+import { DICE_TOOL_NAME, rollBlackboardDice } from './dice-engine.js';
 
 // The native Generate call stays alive while this interceptor runs. It owns the
 // user message, initial regeneration/swap handling and final UI cleanup.
@@ -131,7 +132,9 @@ export function createPrivateInterceptor({ getContext, run, enabled, makeRequest
                     // guard runs, so later local cancellation cannot reroll tools.
                     return response;
                 },
-                invoke: (name, args) => ctx.ToolManager.invokeFunctionTool(name, JSON.stringify(args)),
+                // Own dice work even when no external dice tool is installed.
+                invoke: (name, args) => name === DICE_TOOL_NAME ? rollBlackboardDice(args)
+                    : ctx.ToolManager.invokeFunctionTool(name, JSON.stringify(args)),
             });
             if (!result) throw new Error('Private review was disabled during generation; retry the turn.');
             assertCurrent();

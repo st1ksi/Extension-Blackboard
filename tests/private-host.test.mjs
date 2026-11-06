@@ -69,6 +69,16 @@ test('standalone interceptor takes full dry-run context; publishes only after co
     for (const event of ['GENERATION_STOPPED','CHAT_CHANGED','GENERATE_AFTER_DATA']) assert.equal(h.handlers.get(event).length, 0);
 });
 
+test('private host executes its own dice without delegating to any external ToolManager', async () => {
+    const h=harness({run:async(host,result,ctx)=>{
+        ctx.ToolManager={invokeFunctionTool:()=>assert.fail('No external dice extension')};
+        const receipt=await host.invoke('RollBlackboardDice',{formula:'1d1+2'});
+        assert.equal(receipt.total,3);assert.equal(receipt.source,'simulation-blackboard');
+        return result;
+    }});
+    await h.turn();assert.deepEqual(h.errors,[]);assert.equal(h.ctx.chat.length,2);
+});
+
 for (const type of ['quiet','impersonate']) test(`${type} bypasses the private interceptor`, async () => {
     const h=harness(); await h.turn(type); assert.deepEqual(h.log, []);
 });

@@ -2,6 +2,7 @@ import { PRIVATE_PROTOCOL } from './turn-instructions.js';
 import { PRIVATE_BACKGROUND_PROTOCOL } from './background-instructions.js';
 import { applyUpdate, parseBlocks, validateBoard } from './state.js';
 import { normalizeDiceArguments, diceResult, emptyDiceError, recoverEmptyDiceCheckpoint } from './dice.js';
+import { DICE_TOOL_NAME, DiceExecutionError, validateBlackboardDiceArguments } from './dice-engine.js';
 import { REVIEW_STAGES, makeAudit, reviewProtocol, repairProtocol, validateAudit, validateEvidence, affectedReviewStages } from './review.js';
 import { normalizePrivateReviewMode, LIGHT_REVIEW_STAGE, LIGHT_REPAIR_PROTOCOL, validateLightCorrection } from './private-modes.js';
 import { pendingIssues, captureIssues, acceptIssueReport, reopenIssueVerdicts, stageFindings } from './issue-ledger.js';
@@ -226,7 +227,7 @@ export async function runPrivateTurn({ baseline, mode, reviewMode = 'heavy', rev
         repair_changes: diffBoards(draft.versions[state.repairStart.revision].text, draft.head),
     } : {};
     const progressPhase = () => state.phase === 'review' ? state.reviewKind : state.phase;
-    const simulationTools = ['UpdateBlackboard', 'RollTheDice', ...(backgroundsEnabled ? ['SetSceneBackground'] : [])];
+    const simulationTools = ['UpdateBlackboard', DICE_TOOL_NAME, 'RollTheDice', ...(backgroundsEnabled ? ['SetSceneBackground'] : [])];
     const guard = () => { signal?.throwIfAborted(); assertCurrent(); };
     const ask = async () => {
         guard();
@@ -410,7 +411,7 @@ export async function runPrivateTurn({ baseline, mode, reviewMode = 'heavy', rev
                             draft.backgroundRequests.push({ revision: draft.revision, arguments: args });
                             result = { status: 'queued_until_commit' };
                         } else {
-                            const diceArgs = normalizeDiceArguments(args);
+                            const diceArgs = call.name === DICE_TOOL_NAME ? validateBlackboardDiceArguments(args) : normalizeDiceArguments(args);
                             state.inFlightTool = { name: call.name, callIndex: state.callIndex, arguments: diceArgs };
                             // Outside the invocation catch: a failed save must
                             // stop execution before the non-repeatable tool runs.
@@ -423,21 +424,30 @@ export async function runPrivateTurn({ baseline, mode, reviewMode = 'heavy', rev
                                 // its raw return and prohibit automatic replay on resume.
                                 state.inFlightTool.result = result ?? null;
                                 await save();
-                                throw new Error('RollTheDice returned an unrecognized result. Turn paused; automatic reroll is blocked because the outcome is uncertain. Export the checkpoint for inspection.');
+                                throw new Error(`${call.name} returned an unrecognized result. Turn paused; automatic reroll is blocked because the outcome is uncertain. Export the checkpoint for inspection.`);
                             }
                             state.inFlightTool = null;
                             if (outcome.status === 'empty') {
-                                result = emptyDiceError(result);
+                                result = emptyDiceError(result, call.name);
                                 state.failedUpdate = true;
                             } else {
                                 draft.rolls.push({ at_revision: draft.revision, arguments: diceArgs, result,
-                                    ...(diceArgs.formula !== args.formula ? { requested_arguments: args } : {}) });
+                                    ...(call.name === DICE_TOOL_NAME ? { tool: DICE_TOOL_NAME } : {}),
+                                    ...(JSON.stringify(diceArgs) !== JSON.stringify(args) ? { requested_arguments: args } : {}) });
                             }
                         }
                     } catch (e) {
+                        if (state.inFlightTool?.name === DICE_TOOL_NAME && e instanceof DiceExecutionError) {
+                            state.inFlightTool.result = e.partialReceipt ?? null;
+                            state.inFlightTool.error = { code: e.code, message: e.message, uncertain: e.uncertain };
+                            if (e.uncertain) { await save(); throw e; }
+                            // Our engine can prove it failed before accessing RNG.
+                            state.inFlightTool = null;
+                        }
                         if (state.inFlightTool) throw e;
-                        if (['UpdateBlackboard', 'RollTheDice'].includes(call.name)) state.failedUpdate = true;
-                        result = { status: 'error', message: e.message };
+                        if (['UpdateBlackboard', DICE_TOOL_NAME, 'RollTheDice'].includes(call.name)) state.failedUpdate = true;
+                        result = { status: 'error', message: e.message,
+                            ...(call.name === DICE_TOOL_NAME ? { rolled: false, code: e.code ?? 'DICE_INVALID_REQUEST' } : {}) };
                     }
                     draft.receipts.push({ tool: call.name, revision: draft.revision, result });
                     state.callIndex++;

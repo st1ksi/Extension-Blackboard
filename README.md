@@ -1,5 +1,8 @@
 # Simulation Blackboard
 
+Version **1.17.0** — built-in standard and custom dice, with no separate dice
+extension required.
+
 Persistent world state for roleplay in [SillyTavern](https://github.com/SillyTavern/SillyTavern).
 The extension gives the model a separate **Objective Blackboard** for locations,
 characters, possessions, world time and events, with optional private review
@@ -35,6 +38,8 @@ dependency build is needed for the Blackboard itself.
   and verification; Light mode combines detection into one pass, then corrects findings.
 - **Optional preset compatibility:** prepare the world separately, then compose
   one tool-free answer with your active preset and check the resulting presentation.
+- **Built-in dice:** real browser randomness for model tools and a manual roller,
+  including custom sides/faces, pools, keep/drop, exploding dice and advantage/disadvantage.
 - **Recovery:** checkpointed private work, confirmed dice and pending requests can
   survive provider errors and page reloads.
 - **History rollback:** saved board snapshots and block ages follow deletion,
@@ -60,7 +65,7 @@ Optional requirements:
 
 | Feature | Requirement |
 | --- | --- |
-| Actual model-requested dice | Install [D&D Dice](https://github.com/SillyTavern/Extension-Dice) and enable its **Use function tool** setting. Blackboard does not provide its own RNG. |
+| Actual model-requested dice | Built-in `RollBlackboardDice` uses browser `crypto.getRandomValues`. Enable function calling and Simulation Blackboard; no separate dice extension is required. |
 | Automatic backgrounds | Configure SillyTavern's [Image Generation](https://docs.sillytavern.app/extensions/stable-diffusion/) extension and enable **Automatic scene backgrounds** here. |
 | Private Turns | Single-character chat; secure browser context; Web Locks, IndexedDB, SHA-256 and `crypto.randomUUID`; storage available for checkpoints. |
 | Separate narration | The same browser, chat and checkpoint requirements as Private Turns; independent of whether world reviews are enabled. |
@@ -106,7 +111,20 @@ SillyTavern core files or user settings from another installation.
 Older experimental installations with Blackboard core hooks need those obsolete
 hooks removed; a clean SillyTavern needs only this extension.
 
-## Updating to 1.16.0
+## Updating to 1.17.0
+
+The built-in `RollBlackboardDice` is available whenever Simulation Blackboard is
+enabled, including Standard, Light/Heavy Private Turns and Separate narration.
+The manual roller remains available with simulation disabled. Existing D&D Dice
+tools keep their own names; saved legacy results remain readable and binding.
+
+Built-in prompts now refer to the local tool. Exact recognized previous quality
+sources upgrade without overwriting their saved originals; arbitrary edited custom
+text remains intact and receives the current dice binding in the shared game profile.
+The instruction sources changed: finish or export paused work before replacing files,
+and retain its original version/settings if you need to continue it.
+
+### Updating from before 1.16.0
 
 **Separate narration is off by default.** Existing chats keep their workflow; enable
 the option globally or for This chat when you want the additional presentation stages.
@@ -205,6 +223,54 @@ remains unverified. No material change to prepared outcomes was found in those
 replies, but stale duplicate world records still occurred. Separate narration
 checks presentation; it does not replace world reviews or guarantee model compliance.
 A preset that insists on independently resolving a second world can still conflict.
+
+## Built-in dice
+
+Open **Blackboard Dice** in the wand menu, or **Open dice roller** in the Control
+Panel/native settings. Select a die or enter a formula, then explicitly click
+**Roll dice**. Results stay in the panel. **Add result to message** appends the
+receipt to your existing input for review; it never sends the message or generates
+a reply. A result cannot be appended twice or automatically moved into another chat.
+
+The model uses the same engine through `RollBlackboardDice` during gameplay
+resolution. Narration/review/repair stages cannot request new rolls. Received
+results remain binding across checks, retries and resume. Invalid requests are
+rejected before randomness; an interrupted partial roll is preserved as uncertain
+and cannot be silently repeated. The model still interprets the campaign's rules.
+
+| Request | Example / behavior |
+| --- | --- |
+| Standard or unusual sides | `1d20+5`, `3d7`, `1d100`, `2d6+1d4-2` |
+| Keep/drop | `4d6kh3`, `2d20kl1`, `4d6dl1`; selection applies within that dice group. |
+| Advantage/disadvantage | Choose the mode with `1d20+5`; two dice are drawn, one is kept, and the modifier applies once. Valid for one simple die, including one numeric custom die. |
+| Exploding/acing | `1d6!`; each maximum face adds a further draw in that die's chain. Keep/drop compares the completed chains. |
+| Numeric custom faces | In the panel enter one value per line. Model tools use `faces:["-1","0","1"]`, `face_type:"number"`, and optional `count`/`modifier`. |
+| Symbolic custom faces | Enter labels, one per line, or use `faces:["Success","Blank","Blank"]`, `face_type:"symbol"`. Every entry is equally likely; repetitions supply weights. There is no numeric total. |
+
+Mixed formulas support addition/subtraction, not arbitrary scripts, multiplication,
+parentheses or automatic game-specific success counts. Requests allow up to 100
+base dice, 1,000 listed custom faces and 1,000,000,000 sides. Explosions are bounded
+at 100 draws per chain and 1,000 total faces; reaching a limit leaves an incomplete
+receipt rather than pretending that a truncated sum is a finished roll.
+
+Receipts retain every actual face, group, kept/dropped die and applicable modifier.
+Custom symbolic indices are explicitly distinguished from their actual labels.
+The public tool journal omits model-supplied custom labels and complete face lists
+because these may contain hidden campaign facts; private reports retain the full
+binding receipt. Manual faces are displayed locally as entered by the user.
+
+No dice extension is required. Previously installed `RollTheDice` remains separately
+owned by its original extension; older receipts/checkpoints keep compatibility.
+The current shared instructions prefer the built-in tool and prohibit rerolling a
+resolved check through another source. Secure random draws use rejection sampling
+to avoid modulo bias; the engine has no `Math.random` or invented-result fallback.
+
+Validation includes 544 automated tests, desktop/320px browser checks and stock-host
+integration without an external dice extension. A two-request real-model check in
+Standard mode confirmed one unprompted gameplay roll and five explicit technical
+rolls covering advantage, disadvantage, unusual sides and numeric/symbolic faces.
+This is a limited integration check, not a statistical randomness study or a
+real-model test of every private workflow.
 
 ## Campaign direction
 
@@ -547,7 +613,7 @@ world state and snapshot history; they travel with the host's saved/exported cha
 | Private Turns unavailable on phone | Trusted HTTPS, site storage, browser capabilities and their message in settings. |
 | 429 / temporary API failure | Keep the checkpoint, wait and Resume. Export before discarding. |
 | Cannot resume | Original chat/branch/settings and the displayed reason; some review/tool failures need inspection. |
-| Missing dice | D&D Dice installed, its function tool enabled and global function calling enabled. |
+| Missing dice | Function calling and Simulation Blackboard enabled; look for `RollBlackboardDice`. The manual roller also works with simulation off. Inspect any rejected/uncertain receipt. |
 | No background | Background switch and Image Generation backend; queued does not mean generated. |
 | Save blocked during manual editing | Copy your retained draft if needed, then Load latest. |
 | Wrong character/scenario | Conflicting card, persona, greeting, lorebook or other instructions. |

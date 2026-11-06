@@ -1,5 +1,5 @@
-// Compatibility boundary for the installed RollTheDice tool. Never roll here:
-// the registered tool remains the sole source of randomness.
+// Parse binding receipts from the built-in engine and historical RollTheDice.
+// This module never draws randomness or reconstructs a missing result.
 export function normalizeDiceArguments(args) {
     if (!args || typeof args !== 'object' || Array.isArray(args) || typeof args.formula !== 'string' || !args.formula.trim()) {
         throw new Error('RollTheDice requires a nonempty formula, e.g. 1d20+5. No dice were rolled.');
@@ -21,7 +21,23 @@ export function diceResult(raw) {
             value = { total: match[1].trim(), rolls: match[2].trim() ? match[2].split(',').map(v => v.trim()) : [] };
         }
     }
-    if (!value || typeof value !== 'object' || !Array.isArray(value.rolls)) return { status: 'unknown' };
+    if (!value || typeof value !== 'object') return { status: 'unknown' };
+    if (value.status !== undefined && value.status !== 'success') {
+        return value.status === 'error' && value.rolled === false && !value.uncertain
+            ? { status: 'empty' } : { status: 'unknown' };
+    }
+    if (!Array.isArray(value.rolls)) return { status: 'unknown' };
+    if (value.source === 'simulation-blackboard') {
+        if (value.version !== 1 || value.status !== 'success' || !value.rolls.length
+            || !Array.isArray(value.face_values) || value.face_values.length !== value.rolls.length
+            || !Array.isArray(value.groups) || !value.groups.length || !value.rolls.every(number)) return { status: 'unknown' };
+        const symbolic = value.rolls_kind === 'face_indices';
+        if (symbolic ? value.total !== null || !value.rolls.every(v => Number.isSafeInteger(v) && v > 0)
+            || !value.face_values.every(v => typeof v === 'string') : value.rolls_kind !== 'faces' || !number(value.total)
+            || !value.face_values.every(number)) return { status: 'unknown' };
+        return { status: 'success', total: symbolic ? null : String(value.total), rolls: value.rolls.map(String),
+            symbolic, groups: value.groups, faceValues: value.face_values, formula: value.formula };
+    }
     // This exact empty return is the installed tool's pre-roll validation failure.
     // A missing/malformed total with any dice is uncertain, never safe to repeat.
     if (value.total === '' && value.rolls.length === 0) return { status: 'empty' };
@@ -29,9 +45,10 @@ export function diceResult(raw) {
     return { status: 'success', total: String(value.total), rolls: value.rolls.map(String) };
 }
 
-export const emptyDiceError = raw => ({
+export const emptyDiceError = (raw, tool = 'RollTheDice') => ({
     status: 'error', code: 'DICE_NO_RESULT',
-    message: 'RollTheDice rejected the formula without producing dice. This is NOT a roll result. Correct the formula before resolving the check; use e.g. 1d20+5 or 2d20kh1+5. Do not invent a total.',
+    rolled: false,
+    message: `${tool} rejected the request without producing dice. This is NOT a roll result. Correct the arguments before resolving the check; use e.g. 1d20+5 or 2d20kh1+5. Do not invent a total.`,
     raw_result: raw,
 });
 

@@ -388,6 +388,49 @@ try {
     await page.route('**/*', route => route.request().url().startsWith(origin) ? route.continue() : route.abort());
     await page.goto(origin);
     await page.waitForFunction(() => document.querySelector('#blackboard-dashboard') && window.registered.has('UpdateBlackboard'));
+    // Use the actual registered entry point, new manual panel and local crypto.
+    // No external dice extension exists in this fixture.
+    await page.evaluate(() => {
+        const input=document.createElement('textarea');input.id='send_textarea';input.style.position='absolute';input.style.left='-9999px';
+        input.value='My existing action.';document.body.append(input);
+    });
+    assert.ok(await page.evaluate(()=>registered.has('RollBlackboardDice')&&!registered.has('RollTheDice')));
+    await page.locator('#blackboard_dice_wand_button').click();
+    const dice=page.locator('#blackboard-dice-panel');
+    await dice.waitFor({state:'visible'});
+    assert.equal(await dice.locator('[data-dice-result]').isVisible(),false,'Opening the panel must not roll.');
+    await dice.locator('[data-dice-quick="1d20"]').click();
+    assert.equal(await dice.locator('[data-dice-result]').isVisible(),false,'Selecting a die must not roll.');
+    await dice.locator('[data-dice-formula]').fill('1d20+5');
+    await dice.locator('[data-dice-mode]').selectOption('advantage');
+    await dice.locator('[data-dice-roll]').click();
+    await dice.locator('[data-dice-result]').waitFor({state:'visible'});
+    const diceText=await dice.locator('[data-dice-receipt]').innerText();
+    assert.match(diceText,/2d20kh1\+5/);assert.match(diceText,/\(kept\)/);assert.match(diceText,/\(dropped\)/);
+    assert.equal(await page.evaluate(()=>context.chat.length),0,'Manual dice never generate a reply.');
+    if(output){await mkdir(output,{recursive:true});await page.screenshot({animations:'disabled',path:resolve(output,'dice-desktop.png')});}
+    await dice.locator('[data-dice-publish]').evaluate(button=>{button.click();button.click();});
+    await page.waitForFunction(()=>document.querySelector('[data-dice-publish]').textContent==='Added to message');
+    assert.equal(await page.locator('#send_textarea').inputValue(),'My existing action.\n\n'+diceText);
+    await dice.locator('[data-dice-roll]').click();
+    await page.evaluate(async()=>{context.chatId='Other dice scope';await emit('CHAT_CHANGED');});
+    assert.equal(await dice.locator('[data-dice-publish]').isDisabled(),true,'Old results cannot be appended to another chat.');
+    await page.evaluate(async()=>{context.chatId='Preview campaign';await emit('CHAT_CHANGED');});
+    await dice.locator('summary').click();
+    await dice.locator('[data-dice-use-custom]').check();
+    await dice.locator('[data-dice-mode]').selectOption('normal');
+    await dice.locator('[data-dice-faces]').fill('<img src=x onerror=alert(1)>\nBlank');
+    await dice.locator('[data-dice-count]').fill('2');
+    await dice.locator('[data-dice-roll]').click();
+    assert.equal(await dice.locator('[data-dice-total]').innerText(),'Symbolic result');
+    assert.equal(await dice.locator('[data-dice-receipt] img').count(),0);
+    await page.setViewportSize({width:320,height:780});
+    assert.ok(await dice.evaluate(e=>e.scrollWidth<=e.clientWidth+1),'Dice panel fits a 320px viewport.');
+    if(output)await page.screenshot({animations:'disabled',path:resolve(output,'dice-mobile-320.png')});
+    await page.keyboard.press('Escape');await dice.waitFor({state:'hidden'});
+    await page.setViewportSize({width:1440,height:1000});
+    await page.evaluate(()=>document.getElementById('send_textarea').remove());
+    console.log('Built-in dice browser checks passed: real entrypoint, crypto, standard/custom dice, advantage, no automatic generation, one append, scope guard, safe labels and 320px layout.');
     const panel = page.locator('#blackboard-dashboard');
     const mirror = id => panel.locator(`[data-bb-control="blackboard_${id}"]`);
     const settings = () => page.evaluate(() => context.extensionSettings.blackboard);

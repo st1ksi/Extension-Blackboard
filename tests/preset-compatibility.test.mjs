@@ -5,6 +5,7 @@ import { pass } from './review-fixtures.mjs';
 import { processRegister } from '../transaction.js';
 import { freezeCampaignLayers } from '../campaign-layers.js';
 import { CAMPAIGN_PROMPTS } from '../prompts/campaign-bundle.js';
+import { DICE_TOOL_NAME, rollBlackboardDice } from '../dice-engine.js';
 
 const clock = seconds => `[MISC #world_clock]\n- Time: Day 1, 02:15:${String(seconds).padStart(2, '0')}`;
 const register = seconds => '[MISC #simulation_processes]\n' + JSON.stringify({ version: 1, through: `Day 1, 02:15:${String(seconds).padStart(2, '0')}`, processes: [] });
@@ -89,6 +90,29 @@ test('capture removes exactly marked own injections, preserves arbitrary native 
     assert.throws(() => captureCompatibilityContext([{ role: 'system', content: 'Unmarked preset' }]), /could not identify/);
     assert.throws(() => captureCompatibilityContext([...context, context[1]]), /could not identify/);
     assert.throws(() => captureCompatibilityContext([...context, context[2]]), /could not identify/);
+});
+
+test('separate narration preserves built-in advantage receipt through world and both tool-free stages', async()=>{
+    let requested=false, draws=0;
+    const h=harness({invoke:(name,args)=>{
+        assert.equal(name,DICE_TOOL_NAME);
+        return rollBlackboardDice(args,{randomUint32:()=>draws++===0?2:15});
+    },request:({phase,packet,allowed})=>{
+        if(phase==='simulate'){
+            if(!requested){requested=true;return {calls:[{name:DICE_TOOL_NAME,arguments:{formula:'1d20+5',mode:'advantage'}}]};}
+            return {text:'The check totals twenty-one. The door remains closed.'};
+        }
+        if(phase==='narrate'){
+            assert.deepEqual(allowed,[]);assert.equal(packet.binding_dice[0].result.total,21);
+            assert.deepEqual(packet.binding_dice[0].result.rolls,[3,16]);
+            return {text:'The check totals twenty-one. The door remains closed.'};
+        }
+        if(phase==='narration_check')assert.deepEqual(allowed,[]);
+    }});
+    const result=await h.run();
+    assert.equal(draws,2);assert.equal(result.draft.rolls.length,1);
+    assert.equal(result.draft.rolls[0].tool,DICE_TOOL_NAME);
+    assert.equal(result.narration.responses.length,2);
 });
 
 test('capture restores only last complete tracker from actual saved assistant history and omits tool receipts or superseded swipe', () => {

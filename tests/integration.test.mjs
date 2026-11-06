@@ -78,7 +78,7 @@ async function host(initialSettings = {}, environment = browserEnvironment({inde
     const cache = new Map();
     async function linker(specifier) {
         if (cache.has(specifier)) return cache.get(specifier);
-        if (['./game-system-registry.js', './game-profile-text.js', './prompts/game-profile-bundles.js', './quality-source.js', './campaign-layers.js', './prompts/campaign-bundle.js', './campaign-settings.js', './board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js', './preset-compatibility.js', './narration-validation.js'].includes(specifier)) {
+        if (['./dice-engine.js', './dice-panel.js', './game-system-registry.js', './game-profile-text.js', './prompts/game-profile-bundles.js', './quality-source.js', './campaign-layers.js', './prompts/campaign-bundle.js', './campaign-settings.js', './board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js', './preset-compatibility.js', './narration-validation.js'].includes(specifier)) {
             const mod = new vm.SourceTextModule(await readFile(new URL('../' + specifier.slice(2), import.meta.url), 'utf8'), { context: sandbox, importModuleDynamically: dynamicImport });
             // Let the entry module link the shared dependency graph atomically.
             // Recursively calling link here races on modules reached by several imports.
@@ -97,6 +97,28 @@ async function host(initialSettings = {}, environment = browserEnvironment({inde
         exportReport:()=>cache.get('./private-runner.js').namespace.downloadPrivateReport(),
         failPrivate: (...args) => privateOptions.onFailure(...args), ui: $, imageCommands: stubs.SlashCommandParser.commands, getReport: () => cache.get('./private-runner.js').namespace.getPrivateReport(), runPrivate: (...args) => privateRunner(...args), api: entry.namespace, emit: async (name, ...args) => { for (const f of handlers.get(name) || []) await f(...args); } };
 }
+
+test('registered built-in dice need no D&D Dice and preserve external tool ownership', async () => {
+    const h = await host({ autoSceneBackground: false });
+    assert.equal(h.tools.has('RollTheDice'), false);
+    const own = h.tools.get('RollBlackboardDice');
+    assert.ok(own);
+    const receipt = JSON.parse(await own.action({ formula: '1d1+5', mode: 'advantage' }));
+    assert.equal(receipt.source, 'simulation-blackboard');
+    assert.equal(receipt.total, 6);
+    assert.equal(receipt.groups[0].dice.length, 2);
+    assert.equal(receipt.groups[0].dice.filter(d => d.kept).length, 1);
+    const error = JSON.parse(await own.action({ formula: 'not a formula' }));
+    assert.equal(error.status, 'error');assert.equal(error.rolled, false);
+    const external = { name: 'RollTheDice', marker: 'another extension owns this' };
+    h.tools.set('RollTheDice', external);
+    h.ui('#blackboard_function_tool').prop('checked', false).trigger('change');
+    assert.equal(h.tools.has('RollBlackboardDice'), false);
+    assert.equal(h.tools.get('RollTheDice'), external);
+    assert.equal(JSON.parse(await own.action({formula:'1d1'})).rolled, false);
+    h.ui('#blackboard_function_tool').prop('checked', true).trigger('change');
+    assert.ok(h.tools.has('RollBlackboardDice'));assert.equal(h.tools.get('RollTheDice'), external);
+});
 
 for (const privateReview of [false, true]) test(`background checkbox gates real prompt and tool independently of private mode (${privateReview})`, async () => {
     const h = await host({ privateReview, executionModeVersion:1, autoSceneBackground:false, customBackgroundPrompt:'CUSTOM_BACKGROUND_SENTINEL' });

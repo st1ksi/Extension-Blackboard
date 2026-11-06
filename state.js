@@ -1,5 +1,6 @@
 // Pure state operations. No DOM, globals, network, or mutations of caller data.
 import { hasCalculatedProgression } from './game-system-registry.js';
+import { publicDiceReceipt } from './tool-journal.js';
 export const PROGRESSION_KEY = 'misc #character_progression';
 export const XP_THRESHOLDS = Object.freeze([0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000]);
 const CATEGORIES = new Set(['SCENE', 'ENTITIES', 'NARRATIVE', 'LORE', 'MISC']);
@@ -296,10 +297,14 @@ export function writeSnapshot(message, text, engine) {
 
 export function redactToolLog(message) {
     const invocations = message?.extra?.tool_invocations;
-    if (!invocations?.some(i => ['UpdateBlackboard', 'SetSceneBackground'].includes(i.name))) return false;
+    if (!invocations?.some(i => ['UpdateBlackboard', 'SetSceneBackground', 'RollBlackboardDice'].includes(i.name))) return false;
     const safe = invocations.map(i => ['UpdateBlackboard', 'SetSceneBackground'].includes(i.name)
         ? { name: i.name, result: 'Private world operation. Inspect state in the Blackboard Inspector.' }
-        : { name: i.displayName || i.name, parameters: i.parameters, result: i.result });
+        : i.name === 'RollBlackboardDice' ? (() => {
+            let args = i.parameters;
+            if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
+            return { name: 'RollBlackboardDice', result: publicDiceReceipt({ tool: 'RollBlackboardDice', arguments: args, result: i.result }) };
+        })() : { name: i.displayName || i.name, parameters: i.parameters, result: i.result });
     const escaped = JSON.stringify(safe, null, 2).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     message.mes = `<details><summary>Tool calls</summary><pre><code>${escaped}</code></pre></details>`;
     return true;

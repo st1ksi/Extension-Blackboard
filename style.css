@@ -473,3 +473,80 @@
     .bb-inspector .bb-board-chip { padding: 7px 10px; }
     .bb-inspector .bb-board-card { padding: 12px; }
 }
+
+/* Manual dice: an independent, quiet tool panel. No automatic rolls or chat writes. */
+#blackboard-dice-panel {
+    --bb-dice-muted: #9caeb9;
+    position: fixed;
+    z-index: 3015;
+    top: 50%;
+    right: 16px;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    width: min(440px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
+    margin: 0;
+    border: 1px solid #80b7d07a;
+    border-radius: 14px;
+    background: #202326;
+    box-shadow: inset 0 0 24px #6daed90b, 0 12px 40px #0005;
+    color: #e0e7ed;
+    font-family: var(--mainFontFamily, sans-serif);
+    font-size: var(--mainFontSize, 15px);
+    text-align: left;
+    overflow: hidden;
+    box-sizing: border-box;
+    isolation: isolate;
+}
+#blackboard-dice-panel[hidden] { display: none; }
+#blackboard-dice-panel *, #blackboard-dice-panel *::before, #blackboard-dice-panel *::after { box-sizing: border-box; }
+#blackboard-dice-panel .bb-dice-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 20px 14px; flex-shrink: 0; border-bottom: 1px solid #a6c2d31f; }
+#blackboard-dice-panel .bb-dice-eyebrow { display: block; margin-bottom: 5px; color: #9bd4f2; font-size: 10px; font-weight: 700; letter-spacing: .15em; }
+#blackboard-dice-panel h2 { margin: 0; color: inherit; font-size: 21px; line-height: 1.25; font-weight: 600; }
+#blackboard-dice-panel .bb-dice-body { min-height: 0; padding: 16px 20px 18px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #53616b transparent; }
+#blackboard-dice-panel .bb-dice-hint { margin: 7px 0 13px; color: var(--bb-dice-muted); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+#blackboard-dice-panel button { min-width: 0; margin: 0; padding: 8px 11px; border: 1px solid #58748680; border-radius: 8px; background: #1a2025; box-shadow: none; color: #d9e9f3; font: inherit; font-size: 12px; line-height: 1.4; cursor: pointer; }
+#blackboard-dice-panel button:hover:not(:disabled) { background: #82bddb13; border-color: #8dc9e6a6; }
+#blackboard-dice-panel button:disabled { cursor: default; opacity: .48; }
+#blackboard-dice-panel :is(button, input, select, textarea, summary):focus-visible { outline: 2px solid #8dc9e6; outline-offset: 2px; }
+#blackboard-dice-panel button.bb-dice-close { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 30px; height: 30px; padding: 2px; border-color: transparent; background: transparent; color: #a8bfcd; font-size: 25px; line-height: 1; }
+#blackboard-dice-panel .bb-dice-quick { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 15px; }
+#blackboard-dice-panel .bb-dice-quick button { flex: 1 0 34px; padding: 7px 6px; border-radius: 999px; }
+#blackboard-dice-panel .bb-dice-label { display: block; margin: 12px 0 6px; color: #cbd9e3; font-size: 12px; font-weight: 500; }
+#blackboard-dice-panel :is(input[type="text"], input[type="number"], select, textarea) { display: block; width: 100%; min-width: 0; max-width: 100%; margin: 5px 0 0; padding: 9px 10px; border: 1px solid #4b5965; border-radius: 8px; background: #191e23; box-shadow: none; color: #e0e7ed; font: inherit; font-size: 13px; line-height: 1.5; }
+#blackboard-dice-panel select { overflow: hidden; text-overflow: ellipsis; }
+#blackboard-dice-panel input:disabled, #blackboard-dice-panel textarea:disabled { opacity: .5; }
+#blackboard-dice-panel textarea { resize: vertical; min-height: 84px; max-height: 240px; font-family: var(--monoFontFamily, Consolas, monospace); }
+#blackboard-dice-panel .bb-dice-custom { margin: 16px 0; font-size: 12px; }
+#blackboard-dice-panel summary { width: fit-content; max-width: 100%; color: #9dc9e2; cursor: pointer; }
+#blackboard-dice-panel .bb-dice-custom-body { padding: 4px 0 0; }
+#blackboard-dice-panel .bb-dice-check { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; color: #cbd9e3; font-size: 12px; line-height: 1.5; }
+#blackboard-dice-panel input[type="checkbox"] { flex-shrink: 0; width: 15px; height: 15px; margin: 2px 0 0; accent-color: #86b6cf; }
+#blackboard-dice-panel .bb-dice-custom-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+#blackboard-dice-panel button.bb-dice-roll { width: 100%; margin-top: 2px; padding: 10px 12px; border-color: #81b8d18c; background: #82bddb13; color: #c5e9fb; font-weight: 600; }
+#blackboard-dice-panel .bb-dice-result { margin-top: 18px; padding: 14px; border: 1px solid #80b7d04f; border-radius: 10px; background: #1c2226; box-shadow: inset 0 0 18px #6daed90a; }
+#blackboard-dice-panel .bb-dice-result[hidden] { display: none; }
+#blackboard-dice-panel .bb-dice-total { display: block; margin-bottom: 8px; color: #b9dff2; font-size: 19px; font-weight: 600; }
+#blackboard-dice-panel pre { margin: 0; padding: 0; max-height: 180px; border: 0; background: transparent; color: #cad8e2; font-family: var(--monoFontFamily, Consolas, monospace); font-size: 12px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
+#blackboard-dice-panel .bb-dice-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+#blackboard-dice-panel .bb-dice-actions button:first-child { border-color: #81b8d180; }
+#blackboard-dice-panel .bb-dice-status { margin: 12px 0 0; min-height: 0; color: var(--bb-dice-muted); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+#blackboard-dice-panel .bb-dice-status:empty { display: none; }
+#blackboard-dice-panel .bb-dice-status[data-error="true"] { color: #e3b4a8; }
+@supports selector(::-webkit-scrollbar) {
+    #blackboard-dice-panel, #blackboard-dice-panel * { scrollbar-width: auto; scrollbar-color: auto; }
+    #blackboard-dice-panel ::-webkit-scrollbar { width: 5px; height: 5px; background: transparent; }
+    #blackboard-dice-panel ::-webkit-scrollbar-track, #blackboard-dice-panel ::-webkit-scrollbar-corner { background: transparent; border: 0; box-shadow: none; }
+    #blackboard-dice-panel ::-webkit-scrollbar-thumb { background: #53616b; border: 0; border-radius: 999px; }
+    #blackboard-dice-panel ::-webkit-scrollbar-thumb:hover { background: #738793; }
+    #blackboard-dice-panel ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+}
+@media (max-width: 600px) {
+    #blackboard-dice-panel { right: 10px; width: calc(100vw - 20px); max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); }
+    #blackboard-dice-panel .bb-dice-header { padding: 16px 16px 12px; }
+    #blackboard-dice-panel .bb-dice-body { padding: 12px 16px 16px; }
+    #blackboard-dice-panel .bb-dice-quick { gap: 5px; }
+    #blackboard-dice-panel .bb-dice-quick button { flex-basis: 31px; }
+}

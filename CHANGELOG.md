@@ -4,6 +4,33 @@ This file records development history, not a claim that every version was publis
 as a GitHub Release. Entries summarize previous notes. Dates are omitted where no
 release date was established. Current behavior is described in [README.md](README.md).
 
+## 1.17.0 — 2026-11-06 — Built-in dice
+
+- Add dependency-free `RollBlackboardDice` with unbiased browser crypto randomness
+  for Standard, Light/Heavy Private Turns and Separate narration preparation.
+- Support signed mixed NdS formulas, arbitrary bounded sides, keep/drop, exploding
+  dice, advantage/disadvantage and numeric/symbolic custom faces with duplicate weights.
+  Retain every draw, per-die chain, kept/dropped selection and final modifier.
+- Add an accessible manual dice panel via the wand, native settings and Control
+  Panel. Rolls remain local until explicitly appended to the user's existing input;
+  no automatic reply, board write, duplicate append or cross-chat reuse.
+- Validate the complete request before randomness. Preserve uncertain partial rolls
+  and block automatic rerolls across retries/resume; never complete a capped chain
+  with an invented remaining face or silently accept a truncated result.
+- Preserve old `RollTheDice` ownership and binding receipts. Update current prompt
+  sources and retain exact prior built-ins for migration without editing custom text.
+- Keep symbolic labels and full custom face lists out of public tool journals;
+  retain full evidence in private reports. Support provider-portable string face
+  schemas with explicit numeric/symbolic interpretation.
+- Validate with 544 automated tests, real browser-crypto UI checks at desktop/320px,
+  and stock-host integration without a dice extension. A real-model Standard-mode
+  check confirmed one autonomous gameplay roll and five explicit OOC tool tests,
+  with correct face selection/totals and no world changes during the OOC tests.
+  Live coverage does not establish every private workflow or statistical fairness.
+- Promote the tested local 1.16.1 build to release 1.17.0 without runtime changes;
+  restore release auto-update metadata. Finish or export pending work before updating;
+  continuing an old checkpoint requires its original instruction version/settings.
+
 ## 1.16.0 — 2026-11-01 — Separate narration
 
 - Add optional **Separate narration (preset compatibility)** in native settings and

@@ -1,0 +1,53 @@
+<section id="blackboard-dice-panel" class="bb-dice-panel" role="dialog" aria-modal="false" aria-labelledby="bb-dice-title" aria-describedby="bb-dice-description" hidden>
+    <header class="bb-dice-header">
+        <div><span class="bb-dice-eyebrow">DICE TOOL</span><h2 id="bb-dice-title">Dice roller</h2></div>
+        <button type="button" class="bb-dice-close" data-dice-close aria-label="Close dice roller" title="Close (Escape)">&times;</button>
+    </header>
+    <div class="bb-dice-body">
+        <p id="bb-dice-description" class="bb-dice-hint">Real random rolls in your browser. Results stay here until you add one to your message.</p>
+        <div class="bb-dice-quick" role="group" aria-label="Common dice">
+            <button type="button" data-dice-quick="1d4">d4</button>
+            <button type="button" data-dice-quick="1d6">d6</button>
+            <button type="button" data-dice-quick="1d8">d8</button>
+            <button type="button" data-dice-quick="1d10">d10</button>
+            <button type="button" data-dice-quick="1d12">d12</button>
+            <button type="button" data-dice-quick="1d20">d20</button>
+            <button type="button" data-dice-quick="1d100">d100</button>
+        </div>
+        <form data-dice-form>
+            <label class="bb-dice-label" for="bb-dice-formula">Formula</label>
+            <input id="bb-dice-formula" data-dice-formula type="text" value="1d20" placeholder="1d20+5" maxlength="256" spellcheck="false" autocomplete="off" aria-describedby="bb-dice-formula-help">
+            <p id="bb-dice-formula-help" class="bb-dice-hint">Examples: 2d6+3, 1d7, 4d6kh3, 2d20kl1, 1d6!<br>kh/kl keep highest/lowest; dh/dl drop highest/lowest; ! explodes maximum faces.</p>
+            <label class="bb-dice-label" for="bb-dice-mode">Roll mode</label>
+            <select id="bb-dice-mode" data-dice-mode aria-describedby="bb-dice-mode-help">
+                <option value="normal">Normal</option>
+                <option value="advantage">Advantage — keep higher</option>
+                <option value="disadvantage">Disadvantage — keep lower</option>
+            </select>
+            <p id="bb-dice-mode-help" class="bb-dice-hint">Advantage/disadvantage rolls one die twice, then applies the modifier once. Use a simple 1dN formula or one numeric custom die.</p>
+            <details class="bb-dice-custom">
+                <summary>Custom die faces</summary>
+                <div class="bb-dice-custom-body">
+                    <label class="bb-dice-check"><input type="checkbox" data-dice-use-custom><span>Use these faces instead of a formula</span></label>
+                    <label class="bb-dice-label" for="bb-dice-faces">Faces — one per line</label>
+                    <textarea id="bb-dice-faces" data-dice-faces rows="4" spellcheck="false" placeholder="Success&#10;Failure&#10;Blank" aria-describedby="bb-dice-custom-help"></textarea>
+                    <p id="bb-dice-custom-help" class="bb-dice-hint">Each line is equally likely. Repeat a face to give it more weight. All-numeric lines are summed; other faces are labels, with no numeric total.</p>
+                    <div class="bb-dice-custom-row">
+                        <label class="bb-dice-label" for="bb-dice-count">Dice count<input id="bb-dice-count" data-dice-count type="number" value="1" min="1" max="100" step="1"></label>
+                        <label class="bb-dice-label" for="bb-dice-modifier">Modifier<input id="bb-dice-modifier" data-dice-modifier type="number" value="0" step="1"></label>
+                    </div>
+                </div>
+            </details>
+            <button type="submit" class="bb-dice-roll" data-dice-roll>Roll dice</button>
+        </form>
+        <div class="bb-dice-result" data-dice-result hidden>
+            <strong class="bb-dice-total" data-dice-total></strong>
+            <pre data-dice-receipt tabindex="0" aria-label="Dice result"></pre>
+            <div class="bb-dice-actions">
+                <button type="button" data-dice-publish>Add result to message</button>
+                <button type="button" data-dice-copy>Copy</button>
+            </div>
+        </div>
+        <p class="bb-dice-status" data-dice-status role="status" aria-live="polite"></p>
+    </div>
+</section>

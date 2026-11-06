@@ -32,7 +32,7 @@ for (const id of Object.keys(SYSTEM_BUNDLES)) {
         assert.equal(dnd.profile, GAME_PROFILE_PROMPTS.common.trim()+'\n\n'+dndSource.trim()+'\n');
         if (['compact','ultra'].includes(id)) {
             const originalSection = '### 21.' + SYSTEM_BUNDLES[id].legacy.split('### 21.')[1];
-            assert.ok(dnd.profile.replace(/\r\n/g, '\n').includes(originalSection.replace(/\r\n/g, '\n')), 'The original detailed D&D advancement procedure survives intact');
+            assert.ok(dnd.profile.replace(/\r\n/g, '\n').includes(originalSection.replace(/\r\n/g, '\n').replaceAll('RollTheDice', 'RollBlackboardDice')), 'The original detailed D&D advancement procedure survives with the current dice-tool binding');
             for (const section of [4,5,18,20]) {
                 const extract = t => t.replace(/\r\n/g, '\n').match(new RegExp(`### ${section}\\.[\\s\\S]*?(?=\\n### \\d+\\.|$)`))?.[0];
                 // Item-card properties/currency are generalized. Distance-dependent
