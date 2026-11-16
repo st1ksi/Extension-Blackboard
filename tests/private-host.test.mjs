@@ -5,7 +5,7 @@ import { browserEnvironment } from './browser-fixtures.mjs';
 import { createPrivateInterceptor } from '../private-host.js';
 import { createPrivateRequest, normalizeBlackboardResponse } from '../private-api.js';
 
-function harness({ run, makeRequest, generate, saveReply, saveChat, recoveryFactory } = {}) {
+function harness({ run, makeRequest, generate, saveReply, saveChat, recoveryFactory, getSettings, resolveConnection, isKeySavePending } = {}) {
     const handlers = new Map(), log = [], errors = [];
     const eventSource = {
         on(name, f) { const list = handlers.get(name) || []; list.push(f); handlers.set(name, list); },
@@ -40,7 +40,7 @@ function harness({ run, makeRequest, generate, saveReply, saveChat, recoveryFact
     };
     let isEnabled = true;
     const recovery = recoveryFactory?.(() => ctx);
-    const intercept = createPrivateInterceptor({ getContext: () => ctx, recovery, enabled: () => isEnabled,
+    const intercept = createPrivateInterceptor({ getContext: () => ctx, recovery, enabled: () => isEnabled, getSettings, resolveConnection, isKeySavePending,
         makeRequest: makeRequest || (async () => async () => ({text:'reply'})),
         run: async host => { log.push('run'); return run ? run(host, result, ctx) : result; },
         onFailure: (e, detail) => errors.push({ message: e.message, ...detail }),
@@ -84,6 +84,53 @@ for (const type of ['quiet','impersonate']) test(`${type} bypasses the private i
 });
 test('disabled private mode leaves native generation alone', async () => {
     const h=harness(); h.disable(); await h.turn(); assert.deepEqual(h.log, []);
+});
+
+test('sidecar host routes world and narration separately without requiring narrator tools', async () => {
+    const selected = { descriptor: { kind:'profile', profileId:'sim', name:'Simulation', source:'vertexai', model:'world-model' }, fingerprint:'snapshot-1', assertCurrent() {} };
+    const made = [], calls = [];
+    const h = harness({getSettings:()=>({separateNarration:true,simulationConnectionProfile:'sim'}),
+        resolveConnection:async(ctx,id)=>{assert.equal(id,'sim');return selected;},
+        makeRequest:async(ctx,options)=>{made.push(options.connection);return async(messages,allowed)=>{
+            calls.push({selected:!!options.connection,allowed});return {text:options.connection?'world':'prose'};
+        };},
+        run:async(host,result)=>{
+            assert.equal((await host.request([],['UpdateBlackboard'])).text,'world');
+            assert.equal((await host.narrationRequest([],[])).text,'prose');
+            assert.equal(host.connections.simulation.fingerprint,'snapshot-1');
+            return result;
+        }});
+    h.ctx.canPerformToolCalls=()=>false;
+    const original=structuredClone(h.ctx.chatCompletionSettings);
+    await h.turn();
+    assert.deepEqual(h.errors,[]);assert.deepEqual(made,[undefined,selected]);
+    assert.deepEqual(calls,[{selected:true,allowed:['UpdateBlackboard']},{selected:false,allowed:[]}]);
+    assert.deepEqual(h.ctx.chatCompletionSettings,original);assert.ok(h.log.includes('commit'));
+});
+
+test('a dormant simulation selector never changes ordinary private requests',async()=>{
+    const h=harness({getSettings:()=>({separateNarration:false,simulationConnectionProfile:'sim'}),
+        resolveConnection:()=>assert.fail('Dormant selector must not resolve a profile')});
+    await h.turn();assert.deepEqual(h.errors,[]);assert.ok(h.log.includes('commit'));
+});
+
+test('sidecar profile edits after a paid response prevent publication',async()=>{
+    let changed=false;
+    const h=harness({getSettings:()=>({separateNarration:true,simulationConnectionProfile:'sim'}),
+        resolveConnection:async()=>({descriptor:{kind:'profile',profileId:'sim'},fingerprint:'one',
+            assertCurrent(){if(changed)throw new Error('Simulation connection changed');}}),
+        makeRequest:async()=>async()=>{changed=true;return {text:'late'};},
+        run:async(host,result)=>{await host.request([],[]);return result;}});
+    await h.turn();assert.match(h.errors[0].message,/Simulation connection changed/);
+    assert.ok(!h.log.includes('commit'));assert.equal(h.ctx.chat.length,1);
+});
+
+test('unavailable sidecar fails before prompt preparation or native model fallback',async()=>{
+    const h=harness({getSettings:()=>({separateNarration:true,simulationConnectionProfile:'missing'}),
+        resolveConnection:async()=>{throw new Error('Simulation profile is unavailable');},
+        makeRequest:()=>assert.fail('No requests for missing profile')});
+    await h.turn();assert.match(h.errors[0].message,/unavailable/);
+    assert.deepEqual(h.log,['abort-native']);assert.equal(h.ctx.chat.length,1);
 });
 for (const type of ['regenerate','swipe']) test(`${type} reaches native prompt builder and saveReply with correct type`, async () => {
     const h=harness(); if(type==='swipe') h.ctx.chat.push({is_user:false,mes:'old'});
@@ -192,6 +239,46 @@ test('durable host resumes without rebuilding context, adding a user message, or
     await h.intercept.resume();assert.equal(h.ctx.chat.length,2);
     assert.equal(h.log.filter(x=>Array.isArray(x)&&x[0]==='build').length,1);
     assert.equal(await h.recovery.load(await h.recovery.key()),undefined);
+});
+test('sidecar resume rejects a modified profile, then restores the saved routing without rebuilding context',async()=>{
+    let fingerprint='original',attempts=0,requestsMade=0;
+    const h=harness({recoveryFactory:memoryRecovery,getSettings:()=>({separateNarration:true,simulationConnectionProfile:'sim'}),
+        resolveConnection:async()=>({descriptor:{kind:'profile',profileId:'sim',model:'world'},fingerprint,assertCurrent(){}}),
+        makeRequest:async()=>{requestsMade++;return async()=>({text:'ok'});},
+        run:async(host,result)=>{
+            if(!attempts++){await host.saveCheckpoint({draft:{rolls:[{result:17}]},phase:'narration_check'});throw new Error('429');}
+            assert.equal(host.checkpoint.draft.rolls[0].result,17);return result;
+        }});
+    await h.turn();const key=await h.recovery.key(),saved=await h.recovery.load(key);
+    assert.equal(saved.connections.simulation.fingerprint,'original');assert.equal(requestsMade,2);
+    fingerprint='modified';await h.intercept.resume();
+    assert.match(h.errors.at(-1).message,/Simulation connection changed/);assert.equal(requestsMade,2);
+    assert.deepEqual((await h.recovery.load(key)).checkpoint,saved.checkpoint);
+    fingerprint='original';await h.intercept.resume();assert.equal(h.ctx.chat.length,2);
+    assert.equal(h.log.filter(x=>Array.isArray(x)&&x[0]==='build').length,1);
+});
+test('Resume waits for key saving without touching its checkpoint or sending another request',async()=>{
+    let pending=false,attempts=0;
+    const h=harness({recoveryFactory:memoryRecovery,isKeySavePending:()=>pending,
+        run:async host=>{attempts++;await host.saveCheckpoint({draft:{rolls:[{result:17}]}});throw new Error('429');}});
+    await h.turn();const scope=await h.recovery.key(),saved=await h.recovery.load(scope),chat=structuredClone(h.ctx.chat);
+    pending=true;await h.intercept.resume();
+    assert.match(h.errors.at(-1).message,/API key is being saved/);assert.equal(attempts,1);
+    assert.deepEqual(await h.recovery.load(scope),saved);assert.deepEqual(h.ctx.chat,chat);
+});
+test('a changed sidecar rejects swipe Resume before restoring its pending slot or engine',async()=>{
+    let fingerprint='original';
+    const h=harness({recoveryFactory:memoryRecovery,getSettings:()=>({separateNarration:true,simulationConnectionProfile:'sim'}),
+        resolveConnection:async()=>({descriptor:{kind:'profile',profileId:'sim'},fingerprint,assertCurrent(){}}),
+        run:async host=>{await host.saveCheckpoint({draft:{rolls:[{result:17}]}});throw new Error('429');}});
+    h.ctx.chat.push({is_user:false,mes:'...',swipe_id:1,swipes:['Old answer'],swipe_info:[{extra:{blackboard_snapshot:'baseline'}}]});
+    await h.turn('swipe');
+    Object.assign(h.ctx.chat.at(-1),{mes:'Old answer',swipe_id:0});
+    h.ctx.chatMetadata.blackboard_engine={displayed:'fallback'};
+    const visible=structuredClone(h.ctx.chat),metadata=structuredClone(h.ctx.chatMetadata);
+    fingerprint='modified';await h.intercept.resume();
+    assert.match(h.errors.at(-1).message,/Simulation connection changed/);
+    assert.deepEqual(h.ctx.chat,visible);assert.deepEqual(h.ctx.chatMetadata,metadata);
 });
 test('pending checkpoint blocks a new native generation without overwriting saved work',async()=>{
     const h=harness({recoveryFactory:memoryRecovery,run:async host=>{await host.saveCheckpoint({saved:true});throw new Error('429');}});

@@ -6,6 +6,7 @@ import { normalizePrivateReviewMode, privateReviewModeLabel } from './private-mo
 import { createPrivateReportArchive, legacyPrivateReport } from './private-report-store.js';
 import { freezeCampaignLayers } from './campaign-layers.js';
 import { runPresetCompatibleTurn, appendCompatibilityJournal, captureDisplayedHistory } from './preset-compatibility.js';
+import { setupRequirements, enableRequiredSettings } from './setup-gate.js';
 
 let lastRun = null;
 let lastRunScope = null;
@@ -71,7 +72,7 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
             const result = await executeTurn({ baseline, mode: s.privateReviewFormat, reviewMode, gameSystem: s.gameSystem, campaignLayers: freezeCampaignLayers(s), backgroundsEnabled: !!s.autoSceneBackground,
                 ...(s.separateNarration ? { reviewEnabled: !!s.privateReview, chat, type: host.type,
                     displayedHistory: captureDisplayedHistory(chat, host.type) } : {}),
-                context: host.messages, request: host.request, invoke: host.invoke,
+                context: host.messages, request: host.request, narrationRequest: host.narrationRequest, invoke: host.invoke,
                 signal: host.signal, assertCurrent, checkpoint: host.checkpoint, saveCheckpoint: host.saveCheckpoint,
                 onProgress: (phase, revision, stats, stage) => {
                     host.onProgress?.(phase, revision, stage);
@@ -80,7 +81,7 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
                 },
             });
             const background = { status: !s.autoSceneBackground ? 'disabled' : result.draft.background ? 'queued' : result.draft.backgroundRequests.length ? 'discarded' : 'not_requested', request: result.draft.background, result: null };
-            const report = { status: 'reviewed', attempt_started: attemptStarted, gameSystem: result.draft.gameSystem, campaignLayers: result.draft.campaignLayers, recovery: host.recoveryInfo, ...result.stats, review: result.review, versions: result.draft.versions,
+            const report = { status: 'reviewed', attempt_started: attemptStarted, gameSystem: result.draft.gameSystem, campaignLayers: result.draft.campaignLayers, connections: host.connections, recovery: host.recoveryInfo, ...result.stats, review: result.review, versions: result.draft.versions,
                 rolls: result.draft.rolls, receipts: result.draft.receipts, background, backgroundRequests: result.draft.backgroundRequests, candidate: result.candidate,
                 auditLog: result.auditLog, candidateVersions: result.candidateVersions, issueLedger: result.issueLedger,
                 stageFindings: result.stageFindings, invalidationLog: result.invalidationLog,
@@ -162,7 +163,7 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
             };
         } catch (e) {
             const retained = lastRunScope === scope ? lastRun : null;
-            lastRun = { ...retained, status: 'failed', attempt_started: attemptStarted, campaignLayers: retained?.campaignLayers ?? e.privateTurn?.campaignLayers ?? host.checkpoint?.draft?.campaignLayers ?? freezeCampaignLayers(s), details: e.privateTurn ?? retained?.details, reason: String(e.message), mode: s.privateReviewFormat, reviewMode, at: new Date().toISOString() };
+            lastRun = { ...retained, status: 'failed', attempt_started: attemptStarted, connections: host.connections, campaignLayers: retained?.campaignLayers ?? e.privateTurn?.campaignLayers ?? host.checkpoint?.draft?.campaignLayers ?? freezeCampaignLayers(s), details: e.privateTurn ?? retained?.details, reason: String(e.message), mode: s.privateReviewFormat, reviewMode, at: new Date().toISOString() };
             lastRunScope = scope;
             if (scope) {
                 try { await reportArchive.save(scope, lastRun); }
@@ -173,9 +174,14 @@ export function installPrivateRunner({ settings, getBoard, setBoard, synchronize
             throw e;
         } finally { toastr.clear(toast); }
     }, {
+        getSettings: settings,
         recovery: { getBoard, setBoard, settings },
         enabled: () => !!settings().functionTool && (!!settings().privateReview || !!settings().separateNarration),
-        setup: { enabled: () => !!settings().functionTool, disable: disableSimulation, synchronize },
+        setup: { enabled: () => !!settings().functionTool, disable: disableSimulation, synchronize,
+            requirements: (context, type) => setupRequirements(context, type, {
+                separateSimulation: !!settings().separateNarration && !!settings().simulationConnectionProfile }),
+            enableSettings: context => enableRequiredSettings(context, {
+                separateSimulation: !!settings().separateNarration && !!settings().simulationConnectionProfile }) },
         onStart: clearPrivateReport,
         onFailure: (error, { published = false, cancelled = false, saved = false, scope } = {}) => {
             if (error.code === 'BLACKBOARD_PRIVATE_UNAVAILABLE') {

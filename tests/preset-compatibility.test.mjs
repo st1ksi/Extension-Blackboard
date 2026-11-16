@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { appendCompatibilityJournal, captureCompatibilityContext, captureDisplayedHistory, markCompatibilityInjection, narrationMessages, runPresetCompatibleTurn, validateNarrationText } from '../preset-compatibility.js';
 import { pass } from './review-fixtures.mjs';
 import { processRegister } from '../transaction.js';
@@ -153,6 +154,51 @@ test('supplemental public history never grants disclosure from FF forced reasoni
         if (section.includes('Public end.')) assert.match(JSON.stringify(captured.visibleHistory), /Public end/, section);
         assert.deepEqual(context, original, 'Only supplemental visibility evidence may be filtered');
     }
+});
+
+test('reasoning tags hide nested or malformed private blocks while retaining exact public text', () => {
+    const cases = [
+        ['Before<THINK mode="private">SECRET</think \n>After', 'BeforeAfter'],
+        ['Before<think>SECRET<think>SECRET</think>SECRET</think>After', 'BeforeAfter'],
+        ['Before<reasoning>SECRET<thinking>SECRET</thinking>SECRET</reasoning>After', 'BeforeAfter'],
+        ['Before<think>SECRET</reasoning>SECRET</think>After', 'BeforeAfter'],
+        ['Before<reasoning><thinking>SECRET</reasoning>Unclosed private tail', 'Before'],
+        ['Before<internal_monologue type="private"', 'Before'],
+        ['Before<think', 'Before'],
+        ['Before</think>After', 'Before</think>After'],
+        ['<p>Before</p><thinker>Public</thinker><thinking_extra>After</thinking_extra>',
+            '<p>Before</p><thinker>Public</thinker><thinking_extra>After</thinking_extra>'],
+    ];
+    for (const [source, expected] of cases) {
+        const chat = [{ is_user: false, mes: source }];
+        assert.equal(captureCompatibilityContext(nativeContext(), chat).visibleHistory[0].content, expected, source);
+        assert.equal(chat[0].mes, source, 'Filtering disclosure evidence never edits the saved message');
+        const element = { getAttribute: () => '0', querySelector: () => ({ innerText: source }) };
+        const document = { querySelectorAll: () => [element] };
+        assert.equal(captureDisplayedHistory(chat, 'normal', document)[0].content, expected, source);
+    }
+});
+
+test('large malformed reasoning streams complete without trimming public history', () => {
+    // Isolate the stress input so a regression cannot freeze the test runner.
+    const moduleUrl = new URL('../preset-compatibility.js', import.meta.url).href;
+    const source = `
+        import assert from 'node:assert/strict';
+        import { captureCompatibilityContext, markCompatibilityInjection } from ${JSON.stringify(moduleUrl)};
+        const context = [{ role: 'system', content: markCompatibilityInjection('Fixture', 'world') }];
+        const publicText = text => captureCompatibilityContext(context, [{ is_user: false, mes: text }]).visibleHistory[0].content;
+        assert.equal(publicText('Before' + '<think>'.repeat(250000) + 'SECRET'), 'Before');
+        assert.equal(publicText('Before' + '<think '.repeat(250000) + 'SECRET'), 'Before');
+        assert.equal(publicText('Before' + '<think>SECRET</think>'.repeat(100000) + 'After'), 'BeforeAfter');
+        const ordinary = '<'.repeat(1000000) + 'Public';
+        assert.equal(publicText(ordinary), ordinary);
+        const before = 'Public before. '.repeat(10000), after = 'Public after. '.repeat(10000);
+        assert.equal(publicText(before + '<thinking>SECRET</thinking>' + after), before + after);
+        console.log('Reasoning stress inputs passed');
+    `;
+    const output = execFileSync(process.execPath, ['--input-type=module', '-e', source],
+        { encoding: 'utf8', timeout: 5000 });
+    assert.match(output, /Reasoning stress inputs passed/);
 });
 
 test('displayed history reads already rendered text without rerendering raw source or invoking macros, excludes tools and pending swipe', () => {
@@ -397,6 +443,59 @@ test('final review accepts literal prior dialogue and multiline evidence without
     const result = await h.run();
     assert.equal(result.narration.rewrites, 1);
     assert.equal(result.narration.log.some(entry => entry.status === 'invalid_output'), false);
+});
+
+test('separate connections send all world checks to simulation and only prose to the narrator', async () => {
+    const prose = [];
+    const h = harness({reviewEnabled:true,request:async({phase})=>{
+        assert.notEqual(phase,'narrate','The simulation connection must never compose the visible prose');
+    }});
+    const result = await h.run({narrationRequest:async(messages,allowed)=>{
+        assert.equal(phaseOf(messages),'narrate');assert.deepEqual(allowed,[]);
+        const packet=dataOf(messages);assert.equal(packet.binding_dice.length,1);
+        prose.push(packet);return {text:h.resolved,model:'narrator-model',connection:{kind:'current',role:'narration'}};
+    }});
+    assert.equal(prose.length,1);
+    assert.deepEqual(h.requests.map(item=>item.phase),['simulate','simulate','review','review','review','review','narration_check']);
+    assert.equal(result.candidate,h.resolved);assert.equal(result.draft.rolls.length,1);
+    assert.equal(result.narration.responses[0].model,'narrator-model');
+    assert.equal(result.narration.responses[0].connection.role,'narration');
+});
+
+test('a second-connection narrator failure resumes prose with the same world and binding dice',async()=>{
+    const h=harness();let proseCalls=0;
+    const narrationRequest=async(messages,allowed)=>{
+        assert.deepEqual(allowed,[]);assert.equal(dataOf(messages).binding_dice.length,1);
+        if(!proseCalls++)throw new Error('narrator unavailable');
+        return {text:h.resolved};
+    };
+    await assert.rejects(h.run({narrationRequest}),/narrator unavailable/);
+    const frozen=structuredClone(h.checkpoint.world.draft);
+    const result=await h.resume({narrationRequest});
+    assert.equal(proseCalls,2);assert.equal(h.invocations.length,1);
+    assert.equal(h.requests.filter(item=>item.phase==='simulate').length,2);
+    assert.deepEqual(result.draft.rolls,frozen.rolls);assert.deepEqual(result.draft.versions,frozen.versions);
+    assert.equal(result.narration.review.verdict,'pass');
+});
+
+test('cross-model presentation repair goes back to the narrator while simulation verifies the frozen outcome',async()=>{
+    let checks=0,proseCalls=0;
+    const h=harness({request:async({phase,packet})=>{
+        assert.notEqual(phase,'narrate');
+        if(phase==='narration_check'&&!checks++)return {text:JSON.stringify({version:1,
+            revision:packet.revision,narration_id:packet.narration_id,verdict:'revise',
+            checks:['outcomes','agency','disclosure','format'].map(aspect=>({aspect,status:aspect==='outcomes'?'issue':'pass'})),
+            issues:[{aspect:'outcomes',quote:'The lock opens.',problem:'Failure became success.',correction:'Keep the door closed.',
+                evidence:[{source:'resolved_candidate',quote:'The lock resists'}]}]})};
+    }});
+    const result=await h.run({narrationRequest:async messages=>{
+        if(!proseCalls++)return {text:'The lock opens.'};
+        assert.equal(dataOf(messages).findings_to_correct[0].aspect,'outcomes');
+        return {text:h.resolved};
+    }});
+    assert.equal(result.narration.rewrites,1);assert.equal(proseCalls,2);
+    assert.equal(h.requests.filter(item=>item.phase==='narration_check').length,2);
+    assert.equal(h.invocations.length,1);assert.equal(result.candidate,h.resolved);
 });
 
 for (const failPhase of ['narrate', 'narration_check']) test(`API failure at ${failPhase} resumes its saved presentation request without reexecuting world or dice`, async () => {

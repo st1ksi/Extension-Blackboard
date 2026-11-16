@@ -284,7 +284,8 @@ export async function runPrivateTurn({ baseline, mode, reviewMode = 'heavy', rev
         state.failedUpdate = false;
         stats.outputChars += JSON.stringify(answer).length;
         stats.responses ??= [];
-        stats.responses.push({ phase: state.phase, review_kind: state.phase === 'review' ? state.reviewKind : null, stage: state.phase === 'simulate' ? null : reviewStages[state.auditIndex].id, revision: draft.revision, model: answer.model ?? null, usage: answer.usage ?? null, finishReason: answer.finishReason ?? null });
+        stats.responses.push({ phase: state.phase, review_kind: state.phase === 'review' ? state.reviewKind : null, stage: state.phase === 'simulate' ? null : reviewStages[state.auditIndex].id, revision: draft.revision, model: answer.model ?? null, usage: answer.usage ?? null, finishReason: answer.finishReason ?? null,
+            ...(answer.connection ? { connection: answer.connection } : {}) });
         await save();
         guard();
     };

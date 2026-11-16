@@ -4,6 +4,40 @@ This file records development history, not a claim that every version was publis
 as a GitHub Release. Entries summarize previous notes. Dates are omitted where no
 release date was established. Current behavior is described in [README.md](README.md).
 
+## 1.20.0 — 2026-11-16 — Separate simulation connection
+
+- Release the approved 1.19.2 build: use a saved Chat Completion profile for
+  world preparation and checks while the main connection writes the narration.
+- Include profile-scoped API-key entry in the Control Panel, frozen connection
+  recovery and safe connection/model details in private reports. Current connection
+  remains the default; Global / This chat and optional reviews are supported.
+- Include the bounded reasoning-history processing fix from 1.19.1.
+- Validated with 608 automated tests and browser checks against original ST 1.19.0
+  resources using simulated providers. No behavior changes during release promotion.
+
+## 1.19.2 — 2026-11-12 — Separate simulation connection
+
+- Add a Simulation connection selector under Separate narration in both settings
+  views, with Global / This chat scoping. Current connection remains the default.
+- Route world preparation, optional audits/repairs and narration verification to
+  the selected Chat Completion profile; keep prose and rewrites on the main connection.
+- Resolve profile provider/model/preset parameters without switching ST settings.
+  Preserve request decorators, explicit tools, local dice and provider retry handling.
+- Freeze and validate routing for in-flight work and Resume; retain existing world
+  updates and dice when narration fails. Export safe per-stage connection details.
+- Add an optional API-key entry in the Control Panel using ST's server key store;
+  keep raw credentials out of extension settings, chat metadata and private exports.
+- Check the UI against original SillyTavern 1.19.0 resources. This is a local
+  technical build, not a published GitHub release.
+
+## 1.19.1 — 2026-11-08 — Separate narration history processing
+
+- Replace backtracking-based reasoning-tag removal with a forward-only scan to
+  avoid quadratic processing of repeated, unclosed tags in compatibility history.
+- Preserve private-reasoning exclusion and public history without truncating input.
+- Add regression coverage for reasoning tags, malformed input and long interrupted
+  private sections. This is a local technical build, not a published GitHub release.
+
 ## 1.19.0 — 2026-11-06 — Settings layout
 
 - Move Contextual choice rolls below Separate narration and above Private Turns

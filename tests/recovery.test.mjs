@@ -57,6 +57,18 @@ test('adding the disabled separate-narration default preserves older private che
     }
 });
 
+test('the current-connection default preserves pre-sidecar checkpoints but selecting a profile rejects resume',async()=>{
+    for(const separateNarration of [false,true]) {
+        const h=harness();h.settings.separateNarration=separateNarration;
+        const record=JSON.parse(JSON.stringify(await h.create()));
+        record.checkpoint=separateNarration?{version:1,kind:'separate_narration',phase:'narrate',world:{draft:{rolls:[{result:17}]}}}:{draft:{rolls:[{result:17}]}};
+        const saved=structuredClone(record);
+        h.settings.simulationConnectionProfile='';await h.api.validate(record,h.ctx);
+        assert.deepEqual(record,saved);
+        h.settings.simulationConnectionProfile='other';await assert.rejects(h.api.validate(record,h.ctx),/settings/);
+    }
+});
+
 test('disabled separate-narration migration composes with legacy execution, profile and review defaults',async()=>{
     const h=harness(),record=await h.create();
     record.checkpoint={version:4,draft:{baseline:'baseline'}};

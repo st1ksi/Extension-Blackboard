@@ -1,5 +1,8 @@
+import { replaceConnectionOptions } from './simulation-connection-ui.js';
+import { installSimulationSecretControl } from './simulation-connection-secrets.js';
+
 /** A second view of the native settings. All writes reuse their existing handlers. */
-export function installSettingsDashboard({ html, presets, document = globalThis.document, $ = globalThis.$ }) {
+export function installSettingsDashboard({ html, presets, beforeOpen = () => {}, simulationSecrets = null, document = globalThis.document, $ = globalThis.$ }) {
     const launcher = document.getElementById('blackboard_open_dashboard');
     if (!launcher || document.getElementById('blackboard-dashboard')) return;
     const template = document.createElement('template');
@@ -13,6 +16,7 @@ export function installSettingsDashboard({ html, presets, document = globalThis.
     const tabs = [...panel.querySelectorAll('[data-bb-tab]')];
     const tierGroup = panel.querySelector('[data-bb-tiers]');
     const tiers = [];
+    const secretControl = simulationSecrets ? installSimulationSecretControl({ panel, ...simulationSecrets }) : null;
     let returnFocus = launcher;
     const format = value => Number(value).toLocaleString('en-US');
     for (const [id, preset] of Object.entries(presets)) {
@@ -42,6 +46,8 @@ export function installSettingsDashboard({ html, presets, document = globalThis.
             const native = source(control.dataset.bbControl);
             if (!native) continue;
             if (control.tagName === 'SELECT') {
+                if (control.hasAttribute('data-bb-dynamic-options')) replaceConnectionOptions(control,
+                    [...native.options].map(option => ({ value: option.value, text: option.textContent, disabled: option.disabled, hidden: option.hidden })), native.value);
                 for (const option of control.options) {
                     const nativeOption = [...native.options].find(item => item.value === option.value);
                     option.disabled = nativeOption?.disabled ?? false;
@@ -89,6 +95,7 @@ export function installSettingsDashboard({ html, presets, document = globalThis.
         separateWarning.textContent = !enabled ? 'Inactive while Simulation Blackboard is off.'
             : !injection ? 'Requires auto-injection. Enable it in Advanced settings.'
             : 'Unavailable in this browser. See browser requirements in Private Turn options.';
+        secretControl?.refresh();
     }
 
     function close({ restoreFocus = true } = {}) {
@@ -99,6 +106,7 @@ export function installSettingsDashboard({ html, presets, document = globalThis.
     }
     function open({ focus = true, opener = launcher } = {}) {
         returnFocus = opener;
+        beforeOpen();
         refresh();
         panel.hidden = false;
         launcher.setAttribute('aria-expanded', 'true');

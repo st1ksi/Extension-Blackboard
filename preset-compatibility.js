@@ -20,10 +20,52 @@ const mediaOf = messages => messages.flatMap(m => Array.isArray(m.content)
     ? m.content.filter(p => ['image_url', 'input_audio'].includes(p?.type)) : []);
 const trackerPattern = /<!--\s*GFX_START\s*-->[\s\S]*?<internal_states>[\s\S]*?<\/internal_states>[\s\S]*?<!--\s*GFX_END\s*-->/gi;
 
+const reasoningTags = new Set(['think', 'thinking', 'reasoning', 'internal_monologue']);
+const tagWhitespace = character => character !== undefined && /\s/.test(character);
+
+function withoutReasoning(text) {
+    const visible = [], open = [];
+    let cursor = 0, keep = 0;
+    while (cursor < text.length) {
+        const start = text.indexOf('<', cursor);
+        if (start < 0) break;
+        const closing = text[start + 1] === '/';
+        const nameStart = start + (closing ? 2 : 1);
+        let nameEnd = nameStart;
+        while (nameEnd < text.length && /[a-z_]/i.test(text[nameEnd])) nameEnd++;
+        const name = text.slice(nameStart, nameEnd).toLowerCase();
+        const boundary = text[nameEnd];
+        if (!reasoningTags.has(name) || (boundary !== undefined && boundary !== '>' && !tagWhitespace(boundary))) {
+            cursor = Math.max(start + 1, nameEnd);
+            continue;
+        }
+        let end = nameEnd;
+        if (closing) {
+            while (tagWhitespace(text[end])) end++;
+            if (text[end] !== '>') {
+                cursor = end;
+                continue;
+            }
+            if (open.at(-1) === name) {
+                open.pop();
+                if (!open.length) keep = end + 1;
+            }
+        } else {
+            if (!open.length) visible.push(text.slice(keep, start));
+            open.push(name);
+            end = text.indexOf('>', nameEnd);
+            // Never retry the same suffix for every opener. An unfinished tag,
+            // like an unfinished reasoning block, must not disclose its tail.
+            if (end < 0) break;
+        }
+        cursor = end + 1;
+    }
+    if (!open.length) visible.push(text.slice(keep));
+    return visible.join('');
+}
+
 function publicText(text) {
-    return text.replace(trackerPattern, '')
-        .replace(/<(think|thinking|reasoning|internal_monologue)(?:\s[^>]*)?>[\s\S]*?<\/\1\s*>/gi, '')
-        .replace(/<(?:think|thinking|reasoning|internal_monologue)(?:\s[^>]*)?>[\s\S]*$/gi, '')
+    return withoutReasoning(text.replace(trackerPattern, ''))
         .replace(/(?:^|\n)#{1,6}[ \t]*Internal Monologue[ \t]*:?[^\n]*\n[\s\S]*?(?=(?:\n)#{1,6}[ \t]*Response\b|$)/gi, '')
         .replace(/<!--[^]*?-->/g, '');
 }
@@ -143,7 +185,7 @@ export function appendCompatibilityJournal(candidate, journal) {
 /** Optional wrapper: existing world transaction plus a tool-free presentation boundary. */
 export async function runPresetCompatibleTurn(options) {
     const { checkpoint, saveCheckpoint = async () => {}, context, chat = [], type = 'normal',
-        signal, assertCurrent = () => {}, onProgress = () => {}, request, reviewEnabled = false } = options;
+        signal, assertCurrent = () => {}, onProgress = () => {}, request, narrationRequest = request, reviewEnabled = false } = options;
     if (checkpoint && (checkpoint.kind !== 'separate_narration' || checkpoint.version !== 1)) throw new Error('The saved turn uses a different execution mode. Restore that mode before resuming.');
     const state = checkpoint ? structuredClone(checkpoint) : { version: 1, kind: 'separate_narration',
         sources: captureCompatibilityContext(context, chat, type, options.displayedHistory ?? null), phase: 'world', world: null,
@@ -188,11 +230,15 @@ export async function runPresetCompatibleTurn(options) {
                 await save();
             }
             guard(); onProgress(state.phase, result.draft.revision, state.stats, null);
-            const answer = await request(state.pending.messages, []);
+            // The resolved world and its checks use the simulation connection;
+            // only prose generation/rewrites use the main chat connection.
+            const send = state.pending.phase === 'narrate' ? narrationRequest : request;
+            const answer = await send(state.pending.messages, []);
             state.answer = answer; state.pending = null;
             state.narrationStats.outputChars += JSON.stringify(answer).length;
             state.narrationStats.responses.push({ phase: state.phase, model: answer.model ?? null,
-                usage: answer.usage ?? null, finishReason: answer.finishReason ?? null });
+                usage: answer.usage ?? null, finishReason: answer.finishReason ?? null,
+                ...(answer.connection ? { connection: answer.connection } : {}) });
             await save(); guard();
         };
         while (state.phase !== 'done') {

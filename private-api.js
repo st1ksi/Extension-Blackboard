@@ -17,18 +17,39 @@ export function normalizeBlackboardResponse(data, text, fallbackModel) {
     };
 }
 
-export function createPrivateRequest({ settings, getModel, createParameters, context, fetchRequest = fetch, onWait, retryOptions = {} }) {
+export function createPrivateRequest({ settings, getModel, createParameters, context, fetchRequest = fetch, onWait, retryOptions = {}, connection = null }) {
     // Freeze a per-turn copy, never toggle the user's streaming / multi-swipe settings.
-    const requestSettings = { ...structuredClone(settings), stream_openai: false, n: 1 };
-    const model = getModel(requestSettings);
+    const requestSettings = { ...structuredClone(connection?.settings ?? settings), stream_openai: false, n: 1 };
+    const model = connection?.model ?? getModel(requestSettings);
+    const payloadOverrides = structuredClone(connection?.payloadOverrides ?? {});
+    if (connection) {
+        // ST's reverse-proxy validator reads global narrator settings and may
+        // open a UI popup. The selected proxy is already resolved independently
+        // and is attached to the payload instead of invoking that global path.
+        requestSettings.reverse_proxy = '';
+        requestSettings.proxy_password = '';
+    }
     return async (messages, allowedTools, signal) => {
         signal?.throwIfAborted();
+        connection?.assertCurrent?.();
         const { generate_data: data } = await createParameters(requestSettings, model, 'normal', messages);
+        Object.assign(data, payloadOverrides);
         await context.eventSource.emit(context.eventTypes.CHAT_COMPLETION_SETTINGS_READY, data);
         // Apply the private constraints after other request decorators.
         data.stream = false;
         data.n = 1;
-        data.tools = JSON.parse(JSON.stringify((data.tools || []).filter(t => allowedTools.includes(t.function?.name))));
+        let tools = (data.tools || []).filter(t => allowedTools.includes(t.function?.name));
+        if (connection) {
+            // Native registration can depend on the active narrator's model list.
+            // Read our explicitly permitted schemas directly; the selected model
+            // receives them even when that unrelated native gate returned false.
+            for (const tool of context.ToolManager?.tools ?? []) {
+                const schema = tool.toFunctionOpenAI?.();
+                const name = schema?.function?.name;
+                if (allowedTools.includes(name) && !tools.some(item => item.function?.name === name)) tools = [...tools, schema];
+            }
+        }
+        data.tools = JSON.parse(JSON.stringify(tools));
         if (allowedTools.includes(DICE_TOOL_NAME)) {
             // This tool is executed locally by our host. Decorators cannot make
             // private preparation depend on an external dice extension.
@@ -48,9 +69,14 @@ export function createPrivateRequest({ settings, getModel, createParameters, con
         }
         delete data.tool_choice;
         if (!data.tools.length) delete data.tools;
+        if (connection && allowedTools.includes('UpdateBlackboard') && !data.tools?.some(tool => tool.function?.name === 'UpdateBlackboard')) {
+            throw new Error('The simulation connection could not register UpdateBlackboard. Enable Simulation Blackboard and reload SillyTavern.');
+        }
         signal?.throwIfAborted();
+        connection?.assertCurrent?.();
         const wire = JSON.stringify(data);
         return retryRequest(async () => {
+        connection?.assertCurrent?.();
         let response;
         try { response = await fetchRequest('/api/backends/chat-completions/generate', {
             method: 'POST', headers: context.getRequestHeaders(), body: wire, signal,

@@ -48,8 +48,12 @@
 
             <div class="marginBot10">
                 <label class="checkbox_label" for="blackboard_separate_narration"><input id="blackboard_separate_narration" type="checkbox"><span>Separate narration (preset compatibility)</span></label>
-                <small class="text-muted block">Prepare Blackboard privately, then write one tool-free response with your current preset. Adds requests. Preset trackers display the agreed results rather than running a second simulation. Independent of Private Turn checks; the same connection and browser requirements apply.</small>
+                <small class="text-muted block">Prepare Blackboard privately, then write one tool-free response with your current preset. Adds requests. Preset trackers display the agreed results rather than running a second simulation. Independent of Private Turn checks; requires the private browser APIs.</small>
                 <small id="blackboard_separate_status" class="text-muted block marginTop5" role="status" aria-live="polite"></small>
+                <label for="blackboard_simulation_connection">Simulation connection:</label>
+                <select id="blackboard_simulation_connection" class="text_pole" aria-describedby="blackboard_simulation_connection_status"><option value="">Current connection</option></select>
+                <small class="text-muted block">Save a complete Chat Completion profile in SillyTavern Connection Manager, including its completion preset. Narration keeps your current connection and preset. No global profile switching.</small>
+                <small id="blackboard_simulation_connection_status" class="text-muted block marginTop5" role="status" aria-live="polite"></small>
             </div>
             <div class="blackboard-contextual-choices marginBot10">
                 <label class="checkbox_label" for="blackboard_contextual_choices">

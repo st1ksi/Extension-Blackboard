@@ -27,6 +27,32 @@ test('provider-specific requirements do not demand a system checkbox from other 
             ? ['Enable function calling','Use system prompt'] : ['Enable function calling']);
     }
 });
+
+test('a sidecar connection owns tool support while the narrator still needs system messages',()=>{
+    const h=harness({isToolCallingSupported:()=>false});
+    assert.deepEqual(setupRequirements(h.ctx,'normal',{separateSimulation:true}),{
+        missing:['Use system prompt'],blockers:[],ready:false});
+    h.ctx.chatCompletionSettings.use_sysprompt=true;
+    assert.equal(setupRequirements(h.ctx,'normal',{separateSimulation:true}).ready,true);
+    assert.equal(setupRequirements(h.ctx).ready,false);
+    assert.equal(setupRequirements(h.ctx,'continue',{separateSimulation:true}).ready,false);
+});
+
+test('enabling sidecar requirements does not enable unused narrator tools',()=>{
+    const calls=[];globalThis.$=selector=>({prop:()=>({trigger:()=>calls.push(selector)})});
+    const h=harness();
+    try{enableRequiredSettings(h.ctx,{separateSimulation:true});}finally{delete globalThis.$;}
+    assert.deepEqual(calls,['#use_sysprompt']);assert.equal(h.ctx.chatCompletionSettings.function_calling,false);
+});
+
+test('generation cannot enter native or private requests while the key store is temporarily rotating',async()=>{
+    const {withSetupGate}=await import('../private-host.js');
+    const h=harness();let runs=0,aborts=0,failure;
+    const intercept=withSetupGate(async()=>{runs++;},{getContext:()=>h.ctx,enabled:()=>false,
+        isKeySavePending:()=>true},error=>{failure=error;});
+    await intercept([],1000,flag=>{assert.equal(flag,true);aborts++;},'normal');
+    assert.equal(runs,0);assert.equal(aborts,1);assert.match(failure.message,/API key is being saved/);
+});
 test('check keeps waiting until both settings are enabled, then resumes once without changing chat',async()=>{
     const h=harness(),before=structuredClone(h.ctx.chat);let resumed=0;
     const pending=h.start().then(ok=>{if(ok)resumed++;});

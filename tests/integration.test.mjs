@@ -79,7 +79,7 @@ async function host(initialSettings = {}, environment = browserEnvironment({inde
     const cache = new Map();
     async function linker(specifier) {
         if (cache.has(specifier)) return cache.get(specifier);
-        if (['./choice-resolution.js', './dice-engine.js', './dice-panel.js', './game-system-registry.js', './game-profile-text.js', './prompts/game-profile-bundles.js', './quality-source.js', './campaign-layers.js', './prompts/campaign-bundle.js', './campaign-settings.js', './board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js', './preset-compatibility.js', './narration-validation.js'].includes(specifier)) {
+        if (['./choice-resolution.js', './dice-engine.js', './dice-panel.js', './game-system-registry.js', './game-profile-text.js', './prompts/game-profile-bundles.js', './quality-source.js', './campaign-layers.js', './prompts/campaign-bundle.js', './campaign-settings.js', './board-drafts.js', './board-source.js', './inspector.js', './panel-workspace.js', './dashboard.js', './capabilities.js', './private-modes.js', './private-runner.js', './private-report-store.js', './transaction.js', './review.js', './issue-ledger.js', './tool-journal.js', './dice.js', './prompts/ultra.js', './game-profiles.js', './prompts/system-bundles.js', './turn-instructions.js', './background-instructions.js', './preset-compatibility.js', './narration-validation.js', './setup-gate.js', './simulation-connection-ui.js', './simulation-connection-secrets.js'].includes(specifier)) {
             const mod = new vm.SourceTextModule(await readFile(new URL('../' + specifier.slice(2), import.meta.url), 'utf8'), { context: sandbox, importModuleDynamically: dynamicImport });
             // Let the entry module link the shared dependency graph atomically.
             // Recursively calling link here races on modules reached by several imports.
@@ -1390,10 +1390,11 @@ test('separate narration opt-in rejects unavailable browser storage without eras
 });
 
 // Real registered runner + real host interceptor; only ST services/provider are doubles.
-async function separateLifecycle({rejectNarration=false}={}) {
-    const h=await host({separateNarration:true,privateReview:false,executionModeVersion:1,autoSceneBackground:true});
+async function separateLifecycle({rejectNarration=false,sidecar=false}={}) {
+    const h=await host({separateNarration:true,privateReview:false,executionModeVersion:1,autoSceneBackground:true,
+        simulationConnectionProfile:sidecar?'simulation-profile':''});
     h.api.setBlackboard(privateBoard);await user(h,'Wait six seconds.');
-    const original=h.api.getBlackboard(),log=[],failures=[];
+    const original=h.api.getBlackboard(),log=[],failures=[],routes=[];
     const tracker='<!-- GFX_START -->\n<internal_states>\n<details><summary>Internal States</summary>Observed: waiting; HP 20/20.</details>\n</internal_states>\n<!-- GFX_END -->';
     const narrative='Six seconds pass. You keep the note.';
     const final=narrative+'\n\n'+tracker;
@@ -1425,12 +1426,19 @@ async function separateLifecycle({rejectNarration=false}={}) {
             log.push('background');return JSON.stringify({status:'success',url:'/user/images/offline-test.png'});
         }},
     });
+    const simulation={descriptor:{kind:'profile',profileId:'simulation-profile',name:'World model',source:'vertexai',model:'world-model',preset:'World preset'},
+        fingerprint:'frozen-offline-connection',assertCurrent(){}};
     const interceptor=createPrivateInterceptor({getContext:()=>h.ctx,run:h.runPrivate,enabled:()=>true,
-        makeRequest:async()=>async(messages,allowed)=>{
+        getSettings:()=>h.ctx.extensionSettings.blackboard,
+        resolveConnection:async(_ctx,id)=>{assert.equal(id,'simulation-profile');return simulation;},
+        makeRequest:async(_ctx,{connection})=>async(messages,allowed)=>{
             assert.equal(h.ctx.chat.length,1,'Intermediate work must not publish chat messages.');
             assert.equal(h.api.getBlackboard(),original,'World draft cannot become canonical before final verification.');
             const raw=messages.at(-1).content;
             const packet=JSON.parse(raw.startsWith('{')?raw:raw.split('\n').slice(1).join('\n'));
+            const phase=packet.phase==='simulate'?'simulate':raw.startsWith('BLACKBOARD RESOLVED TURN')?'narrate':'narration_check';
+            routes.push({phase,connection:connection?'simulation':'current'});
+            if(sidecar)assert.equal(!!connection,phase!=='narrate','Only prose belongs to the main connection.');
             if(packet.phase==='simulate'){
                 log.push('simulate');
                 if(!worldStep++)return {calls:[
@@ -1450,8 +1458,23 @@ async function separateLifecycle({rejectNarration=false}={}) {
     });
     await h.emit('GENERATION_STARTED','normal',{},false);
     await interceptor([],10000,flag=>{assert.equal(flag,true);log.push('abort-native');},'normal');
-    return {h,log,failures,original,final,tracker};
+    return {h,log,failures,original,final,tracker,routes};
 }
+
+test('registered runner routes a selected sidecar through simulation and verification, with one main-model narration',async()=>{
+    const {h,log,failures,routes}=await separateLifecycle({sidecar:true});
+    assert.deepEqual(failures,[]);
+    assert.deepEqual(routes,[{phase:'simulate',connection:'simulation'},{phase:'simulate',connection:'simulation'},
+        {phase:'narrate',connection:'current'},{phase:'narration_check',connection:'simulation'}]);
+    const report=h.getReport();
+    assert.equal(report.status,'committed');assert.equal(report.connections.simulation.profileId,'simulation-profile');
+    assert.equal(report.connections.simulation.fingerprint,'frozen-offline-connection');
+    assert.equal(report.responses.filter(response=>response.connection?.role==='simulation').length,2);
+    assert.deepEqual(Array.from(report.narration.responses,response=>response.connection?.role),['narration','simulation']);
+    assert.equal(log.filter(item=>item==='dice').length,1);assert.equal(log.filter(item=>item==='publish').length,1);
+    assert.equal(h.ctx.chat.at(-1).extra.blackboard_snapshot,h.api.getBlackboard());
+    assert.doesNotMatch(JSON.stringify(h.ctx.chat),/frozen-offline-connection|resolvedCandidate|narration_check/);
+});
 
 test('registered compatibility pipeline publishes once after final check, keeps one snapshot and installs background afterward',async()=>{
     const {h,log,failures,final,tracker}=await separateLifecycle();

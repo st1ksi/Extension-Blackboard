@@ -2,10 +2,12 @@ import { createSetupGate } from './setup-gate.js';
 import { makePrivateRequest } from './private-api.js';
 import { createRecovery, recoveryPanel } from './recovery.js';
 import { DICE_TOOL_NAME, rollBlackboardDice } from './dice-engine.js';
+import { resolveSimulationConnection } from './simulation-connection.js';
+import { isSimulationKeySavePending } from './simulation-connection-secrets.js';
 
 // The native Generate call stays alive while this interceptor runs. It owns the
 // user message, initial regeneration/swap handling and final UI cleanup.
-export function createPrivateInterceptor({ getContext, run, enabled, makeRequest = makePrivateRequest, onStart = () => {}, onFailure = () => {}, recovery = null }) {
+export function createPrivateInterceptor({ getContext, run, enabled, getSettings = () => ({}), makeRequest = makePrivateRequest, resolveConnection = resolveSimulationConnection, isKeySavePending = isSimulationKeySavePending, onStart = () => {}, onFailure = () => {}, recovery = null }) {
     let active = null;
     let options = {};
     const initial = getContext();
@@ -37,12 +39,27 @@ export function createPrivateInterceptor({ getContext, run, enabled, makeRequest
     interceptor.resume = async () => {
         if (!recovery || active) return;
         try {
+            if (isKeySavePending()) throw new Error('An API key is being saved. Wait for it to finish, then resume the turn.');
             if (!enabled()) throw new Error('Enable Blackboard Private Turns or Separate narration to resume the saved turn.');
             await recovery.withLock(getContext(), async scope => {
                 const record = await recovery.load(scope);
                 if (!record) return;
                 const ctx = getContext();
+                // Check routing before restoring a failed swipe's pending slot.
+                // An unavailable/edited sidecar must leave the visible branch intact.
+                await recovery.validate(record, ctx, false);
+                const settings = getSettings();
+                const profileId = settings.separateNarration ? settings.simulationConnectionProfile : '';
+                if (profileId || record.connections?.simulation?.kind === 'profile') {
+                    const snapshot = profileId ? await resolveConnection(ctx, profileId) : null;
+                    const simulation = snapshot ? { ...snapshot.descriptor, fingerprint: snapshot.fingerprint } : { kind: 'current' };
+                    if (JSON.stringify(record.connections?.simulation) !== JSON.stringify(simulation)) {
+                        throw new Error('Simulation connection changed. Restore the saved connection profile and preset to resume this turn.');
+                    }
+                    snapshot?.assertCurrent();
+                }
                 await recovery.validate(record, ctx, true);
+                if (isKeySavePending()) throw new Error('An API key is being saved. Wait for it to finish, then resume the turn.');
                 ctx.deactivateSendButtons?.();
                 try { await execute(() => {}, record.type, record, scope); }
                 finally { ctx.activateSendButtons?.(); }
@@ -67,8 +84,10 @@ export function createPrivateInterceptor({ getContext, run, enabled, makeRequest
         const configuration = recovery?.configuration();
         const fingerprint = () => JSON.stringify(chat.map(m => [m.is_user, m.is_system, m.mes, m.swipe_id]));
         const before = fingerprint();
+        let simulationConnection = null;
         const assertCurrent = () => {
             controller.signal.throwIfAborted();
+            simulationConnection?.assertCurrent();
             const now = getContext();
             if (now.chat !== chat || now.chatMetadata !== metadata || fingerprint() !== before || now.mainApi !== ctx.mainApi || JSON.stringify(now.chatCompletionSettings) !== connection || recovery?.configuration() !== configuration) {
                 throw new Error('Chat or branch changed while preparing private context.');
@@ -86,14 +105,26 @@ export function createPrivateInterceptor({ getContext, run, enabled, makeRequest
             onStart();
             if (type === 'continue') throw new Error('Private review: use a new message or regenerate instead of Continue.');
             if (ctx.groupId) throw new Error('Private review currently supports single-character chats.');
-            if (ctx.mainApi !== 'openai' || !ctx.canPerformToolCalls(type)) throw new Error('Private review requires Chat Completion with function tools enabled.');
+            const currentSettings = getSettings();
+            const profileId = currentSettings.separateNarration ? currentSettings.simulationConnectionProfile : '';
+            if (ctx.mainApi !== 'openai' || (!profileId && !ctx.canPerformToolCalls(type))) throw new Error('Private review requires Chat Completion with function tools enabled.');
             if (typeof ctx.saveReply !== 'function' || typeof ctx.generate !== 'function') throw new Error('This SillyTavern version lacks the required extension API.');
             assertCurrent();
-            const request = await makeRequest(ctx, {
-                onWait: async wait => {
-                    if (record) { record.wait = wait; (record.networkRetries ??= []).push({ ...wait, at: Date.now() }); await recovery.write(record); }
-                },
-            });
+            if (profileId) simulationConnection = await resolveConnection(ctx, profileId);
+            assertCurrent();
+            const connections = { version: 1,
+                simulation: simulationConnection ? { ...simulationConnection.descriptor, fingerprint: simulationConnection.fingerprint } : { kind: 'current' },
+                narration: { kind: 'current' } };
+            if (saved && ((saved.connections && JSON.stringify(saved.connections) !== JSON.stringify(connections))
+                || (!saved.connections && simulationConnection))) {
+                throw new Error('Simulation connection changed. Restore the saved connection profile and preset to resume this turn.');
+            }
+            const onWait = role => async wait => {
+                if (record) { record.wait = wait; (record.networkRetries ??= []).push({ ...wait, connectionRole: role, at: Date.now() }); await recovery.write(record); }
+            };
+            const narrationRequest = await makeRequest(ctx, { onWait: onWait('narration') });
+            const request = simulationConnection
+                ? await makeRequest(ctx, { connection: simulationConnection, onWait: onWait('simulation') }) : narrationRequest;
             // Stock dry-run builds card, lorebook, persona, prompt-manager and
             // extension injections, without requesting a model or saving a reply.
             let messages = record?.messages;
@@ -111,6 +142,7 @@ export function createPrivateInterceptor({ getContext, run, enabled, makeRequest
                     assertCurrent();
                     record = await recovery.create(ctx, type, messages, scope);
                 }
+                record.connections = connections;
                 record.status = 'running'; delete record.error; delete record.wait;
                 if (saved) record.resumes = (record.resumes || 0) + 1;
                 await recovery.write(record);
@@ -124,13 +156,20 @@ export function createPrivateInterceptor({ getContext, run, enabled, makeRequest
                     if (record) { record.checkpoint = checkpoint; await recovery.write(record); }
                 },
                 onProgress: (phase, revision, stage) => { if (record) { record.phase = phase; record.auditStage = stage; } },
+                connections,
+                narrationRequest: async (prompt, allowed) => {
+                    assertCurrent();
+                    const response = await narrationRequest(prompt, allowed, controller.signal);
+                    if (record) delete record.wait;
+                    return simulationConnection ? { ...response, connection: { ...connections.narration, role: 'narration' } } : response;
+                },
                 request: async (prompt, allowed) => {
                     assertCurrent();
                     const response = await request(prompt, allowed, controller.signal);
                     if (record) delete record.wait;
                     // The transaction persists the received response before its
                     // guard runs, so later local cancellation cannot reroll tools.
-                    return response;
+                    return simulationConnection ? { ...response, connection: { ...simulationConnection.descriptor, role: 'simulation' } } : response;
                 },
                 // Own dice work even when no external dice tool is installed.
                 invoke: (name, args) => name === DICE_TOOL_NAME ? rollBlackboardDice(args)
@@ -207,6 +246,9 @@ export function withSetupGate(privateInterceptor, setup, onFailure = () => {}) {
         const toolsAvailable = !!before.isToolCallingSupported?.();
         const options = generationOptions;
         try {
+            if ((setup.isKeySavePending ?? isSimulationKeySavePending)()) {
+                throw Object.assign(new Error('An API key is being saved. Wait for it to finish, then retry this message.'), { code: 'BLACKBOARD_PRIVATE_UNAVAILABLE' });
+            }
             if (!await guard(rawType || 'normal', abort)) return;
             const after = setup.getContext();
             // Generate captures canPerformToolCalls before extension interceptors.

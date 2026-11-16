@@ -12,6 +12,7 @@ import { normalizeCampaignLayers, CAMPAIGN_LAYER_OPTIONS } from './campaign-laye
 import { choiceResolutionInstructions } from './choice-resolution.js';
 import { migrateQualitySeparation, QUALITY_SEPARATION_VERSION } from './quality-source.js';
 import { installSettingsDashboard } from './dashboard.js';
+import { simulationConnectionOptions, replaceConnectionOptions } from './simulation-connection-ui.js';
 import { installBoardInspector } from './inspector.js';
 import { createPanelWorkspace } from './panel-workspace.js';
 import { DICE_TOOL_NAME, DICE_PARAMETERS, DICE_TOOL_DESCRIPTION, rollBlackboardDice } from './dice-engine.js';
@@ -95,6 +96,7 @@ const defaultSettings = Object.freeze({
     historyRollback: true,
     privateReview: false,
     separateNarration: false,
+    simulationConnectionProfile: '',
     contextualChoices: false,
     privateReviewMode: 'heavy',
     executionModeVersion: 1,
@@ -122,6 +124,7 @@ const campaignSettings = createCampaignSettings({
     normalize: settings => {
         settings.privateReviewMode = normalizePrivateReviewMode(settings.privateReviewMode);
         settings.separateNarration = settings.separateNarration === true;
+        settings.simulationConnectionProfile = typeof settings.simulationConnectionProfile === 'string' ? settings.simulationConnectionProfile : '';
         settings.contextualChoices = settings.contextualChoices === true;
         Object.assign(settings, normalizeCampaignLayers(settings));
     },
@@ -860,9 +863,39 @@ async function addSettingsDrawer() {
             persistSettings();
             syncExtensionPrompt();
         });
+        $('#blackboard_simulation_connection').on('change', function () {
+            if (!ensureSettingsCurrent()) return;
+            settings.simulationConnectionProfile = String($(this).val() ?? '');
+            updateExecutionUI();
+            persistSettings();
+        });
+        function refreshSimulationConnections() {
+            const select = document.getElementById('blackboard_simulation_connection');
+            const context = SillyTavern.getContext();
+            const selected = settings.simulationConnectionProfile;
+            const options = simulationConnectionOptions(context, selected);
+            replaceConnectionOptions(select, options, selected);
+            const inactive = !settings.functionTool || !settings.separateNarration;
+            if (select) select.disabled = inactive || !privateTurnCapabilities().supported;
+            const choice = options.find(option => option.value === selected);
+            $('#blackboard_simulation_connection_status').text(inactive
+                ? 'Enable Separate narration to use a separate simulation connection. Your selection is retained.'
+                : choice?.disabled ? 'This saved connection is unavailable. Choose a Chat Completion profile; generation will not fall back to another connection.'
+                : selected ? 'World preparation and its checks use this profile. Narration uses the current chat connection and preset.'
+                : 'World preparation, checks and narration use the current chat connection.');
+        }
+        const connectionContext = SillyTavern.getContext();
+        for (const name of ['CONNECTION_PROFILE_CREATED', 'CONNECTION_PROFILE_UPDATED', 'CONNECTION_PROFILE_DELETED', 'CONNECTION_PROFILE_LOADED']) {
+            const event = connectionContext.eventTypes?.[name] ?? connectionContext.event_types?.[name];
+            if (event) connectionContext.eventSource?.on(event, () => {
+                refreshSimulationConnections();
+                settingsDashboard?.refresh();
+            });
+        }
         function updateExecutionUI() {
             const capabilities = privateTurnCapabilities();
             const separated = settings.separateNarration;
+            refreshSimulationConnections();
             $('#blackboard_private_capabilities').text(separated && !settings.privateReview
                 ? capabilities.message.replaceAll('Private Turns', 'Separate narration') : capabilities.message);
             $('#blackboard_turn_instructions').val(executionInstructions(settings));
@@ -1168,7 +1201,9 @@ async function addSettingsDrawer() {
                 input.focus();
             },
         });
-        settingsDashboard = installSettingsDashboard({ html: await renderExtensionTemplateAsync(TEMPLATE_PATH, 'dashboard'), presets: FIDELITY_PRESETS });
+        settingsDashboard = installSettingsDashboard({ html: await renderExtensionTemplateAsync(TEMPLATE_PATH, 'dashboard'), presets: FIDELITY_PRESETS,
+            beforeOpen: refreshSimulationConnections, simulationSecrets: {
+                getContext: () => SillyTavern.getContext(), getSettings: () => settings, getViewKey: () => campaignSettings.viewKey() } });
         if (settingsDashboard) {
             boardInspector = installBoardInspector({ html: await renderExtensionTemplateAsync(TEMPLATE_PATH, 'inspector'),
                 read: inspectorState, write: setBlackboard, parse: parseBlocks, tidy: text => serializeBlocks(parseBlocks(text)),

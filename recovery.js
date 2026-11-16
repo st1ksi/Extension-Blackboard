@@ -111,6 +111,14 @@ export function createRecovery({ getContext, getBoard, setBoard, settings, getAc
         // Unrelated historical default fields retain their narrow compatibility
         // rules only after the separated instruction descriptor has matched.
         const compatibleSettings = [{ ...currentSettings }];
+        // An empty sidecar selector is the historical current-connection path.
+        // A selected profile is a real routing change and cannot migrate.
+        if (!currentSettings.simulationConnectionProfile) {
+            for (const settings of [...compatibleSettings]) {
+                const previous = { ...settings }; delete previous.simulationConnectionProfile;
+                compatibleSettings.push(previous);
+            }
+        }
         // A missing opt-in field in an older checkpoint means off. Enabling the
         // independent policy changes frozen instructions and is never migrated.
         if (currentSettings.contextualChoices === false && !savedLayers.choiceResolution) {

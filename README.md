@@ -1,6 +1,6 @@
 # Simulation Blackboard
 
-Version **1.19.0** — clearer settings layout for contextual choice rolls.
+Version **1.20.0** — separate simulation connection profiles.
 
 Persistent world state for roleplay in [SillyTavern](https://github.com/SillyTavern/SillyTavern).
 The extension gives the model a separate **Objective Blackboard** for locations,
@@ -37,6 +37,8 @@ dependency build is needed for the Blackboard itself.
   and verification; Light mode combines detection into one pass, then corrects findings.
 - **Optional preset compatibility:** prepare the world separately, then compose
   one tool-free answer with your active preset and check the resulting presentation.
+- **Optional simulation connection:** use a saved Chat Completion profile for world
+  preparation and checks, while the main connection writes the visible narration.
 - **Built-in dice:** real browser randomness for model tools and a manual roller,
   including custom sides/faces, pools, keep/drop, exploding dice and advantage/disadvantage.
 - **Optional contextual choice rolls:** a separate instruction layer for grounded,
@@ -55,8 +57,8 @@ dependency build is needed for the Blackboard itself.
 
 ## Requirements
 
-- **SillyTavern 1.19.0 or newer.** Clean-host compatibility checks use 1.19.0,
-  release commit `06bde939f`.
+- **SillyTavern 1.19.0 or newer.** Clean-host compatibility checks use the original
+  1.19.0 release. No SillyTavern core changes are required.
 - A **Chat Completion** connection with function calling supported by the selected
   model/configuration. Enable **function calling** in AI Response Configuration.
 - For **Claude, Google AI Studio and Google Vertex AI**, enable **Use system prompt**.
@@ -71,6 +73,7 @@ Optional requirements:
 | Automatic backgrounds | Configure SillyTavern's [Image Generation](https://docs.sillytavern.app/extensions/stable-diffusion/) extension and enable **Automatic scene backgrounds** here. |
 | Private Turns | Single-character chat; secure browser context; Web Locks, IndexedDB, SHA-256 and `crypto.randomUUID`; storage available for checkpoints. |
 | Separate narration | The same browser, chat and checkpoint requirements as Private Turns; independent of whether world reviews are enabled. |
+| Separate simulation connection | Separate narration enabled; Connection Manager enabled; a saved Chat Completion profile with model, settings preset and working credentials. The simulation model must support function tools. |
 
 On the server computer, `http://localhost` can provide the required secure context.
 On a phone or another LAN device, use **HTTPS with a certificate trusted by that
@@ -113,7 +116,24 @@ SillyTavern core files or user settings from another installation.
 Older experimental installations with Blackboard core hooks need those obsolete
 hooks removed; a clean SillyTavern needs only this extension.
 
-## Updating to 1.19.0
+## Updating to 1.20.0
+
+The new **Simulation connection** selector defaults to **Current connection**.
+Existing workflows and paused turns with that default keep their previous routing.
+An explicitly selected profile is used only while Separate narration is enabled.
+Finish active work before updating and reload afterward. Changing a saved profile,
+its preset, key selection or Blackboard settings requires restoring the original
+configuration before resuming a paused turn; a different connection is never used
+silently. The original checkpoint and confirmed rolls remain saved.
+
+### Updating from before 1.19.1
+
+Separate narration now removes private reasoning tags with a forward-only scan.
+Long or malformed runs of opening tags no longer cause repeated scans of the same
+history text. Closed and interrupted private sections remain excluded from public
+disclosure evidence; ordinary public text is preserved.
+
+The previous settings layout remains unchanged:
 
 Contextual choice rolls now has its own section directly below Separate narration
 and above Private Turns, using the same Control Panel dividers. Native settings use
@@ -228,7 +248,8 @@ The optional workflow has one owner for world changes:
 
 The clean path adds **two requests** after world preparation/review: narration
 and its check. Rewrites, tool continuations and API retries can add more. Requests
-are not streamed. The selected model, connection and quality budget are unchanged.
+are not streamed. By default all stages use the current connection; the quality
+budget is unchanged. A separate simulation profile is optional, as described below.
 
 Only this extension's explicitly marked injections are separated; arbitrary
 preset text is not deleted by keyword, and no preset files, regex settings or
@@ -261,6 +282,47 @@ That play test did not enable the FF preset: full FF gameplay compatibility
 remains unverified. No material change to prepared outcomes was found in those
 replies, but stale duplicate world records still occurred. Separate narration
 checks presentation; it does not replace world reviews or guarantee model compliance.
+
+### Simulation connection
+
+With Separate narration enabled, **Simulation connection** can select a saved
+SillyTavern Connection Manager profile. **Current connection** is the default.
+The choice follows Global / This chat settings and is retained while inactive.
+
+1. Save a complete **Chat Completion** connection profile in SillyTavern, including
+   its API, model and completion settings preset. Configure its URL and credentials
+   for the selected provider. The model must support function tools.
+2. Enable **Separate narration** and select that profile under **Simulation connection**.
+3. To add or replace its key from the Control Panel, expand **API key for this profile**.
+   The key is stored in SillyTavern's server-side key store and the saved profile
+   receives its key ID. Chats using that profile share the same key selection.
+   Subscription connections may not need a key. Enter a key only when required
+   by that connection; it is never saved in Blackboard settings, chat metadata or exports.
+
+World preparation, dice resolution, optional Private Turn reviews/repairs and the
+final narration check use the simulation profile. Only narration and presentation
+rewrites use the main chat connection. Both routes can use different models or
+providers. No active SillyTavern connection profile is switched globally.
+
+The selected completion preset supplies request parameters such as sampling,
+reasoning effort and response limit. The original chat still supplies the assembled
+card, persona, lorebook, history and narration preset instructions. Selecting a
+simulation profile does not apply its prompt manager, regex preset or other global
+campaign settings. The assembled context must fit both models' context windows.
+
+Profiles and their relevant settings are frozen for the turn and checked again on
+Resume. Missing or changed profiles stop the turn without silently falling back.
+Exports identify the connection/model used for each stage without including API
+keys or endpoint settings. Existing confirmed dice and completed world updates
+remain saved when either connection fails.
+
+Text Completion profiles are unavailable. Custom endpoints retain the normal ST
+request decorators, including subscription adapters; tool-preserving prompt
+post-processing is required. Selected-profile logit bias is disabled because ST's
+calculator uses the active model's tokenizer/cache. This split adds no new review
+stages, but its sequential requests and provider latency still affect waiting time.
+Verification of this feature uses automated provider responses and browser fixtures;
+it does not establish compatibility with every real provider or subscription adapter.
 A preset that insists on independently resolving a second world can still conflict.
 
 ## Built-in dice

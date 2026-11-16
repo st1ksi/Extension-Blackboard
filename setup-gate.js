@@ -1,14 +1,14 @@
 // Hold the native generation before the model request. Resume the same call;
 // never re-send the user message or restart a swipe/regeneration.
-export function setupRequirements(context, type = 'normal') {
+export function setupRequirements(context, type = 'normal', { separateSimulation = false } = {}) {
     const settings = context.chatCompletionSettings ?? {};
     const missing = [];
     const blockers = [];
     if (context.mainApi !== 'openai') blockers.push('Select a Chat Completion connection that supports function calling.');
     else {
-        if (!settings.function_calling) missing.push('Enable function calling');
+        if (!separateSimulation && !settings.function_calling) missing.push('Enable function calling');
         if (['claude', 'makersuite', 'vertexai'].includes(settings.chat_completion_source) && !settings.use_sysprompt) missing.push('Use system prompt');
-        if (settings.function_calling && !context.isToolCallingSupported?.()) blockers.push('The selected model or request configuration does not support function calling. Choose a supported model/configuration.');
+        if (!separateSimulation && settings.function_calling && !context.isToolCallingSupported?.()) blockers.push('The selected model or request configuration does not support function calling. Choose a supported model/configuration.');
         if (type === 'continue') blockers.push('SillyTavern does not call tools for Continue. Use a new message or Regenerate, or disable Simulation Blackboard for this generation.');
     }
     return { missing, blockers, ready: !missing.length && !blockers.length };
@@ -46,11 +46,11 @@ export function setupPanel() {
     };
 }
 
-export function enableRequiredSettings(context) {
+export function enableRequiredSettings(context, { separateSimulation = false } = {}) {
     // Dispatch the host's own handlers so its UI, feature flags and saved settings agree.
     const settings = context.chatCompletionSettings;
     if (context.mainApi !== 'openai' || !settings) return;
-    if (!settings.function_calling) {
+    if (!separateSimulation && !settings.function_calling) {
         settings.function_calling = true;
         $('#openai_function_calling').prop('checked', true).trigger('input');
     }
@@ -61,14 +61,14 @@ export function enableRequiredSettings(context) {
     context.saveSettingsDebounced?.();
 }
 
-export function createSetupGate({ getContext, enabled, disable, synchronize, showPanel = setupPanel, enableSettings = enableRequiredSettings }) {
+export function createSetupGate({ getContext, enabled, disable, synchronize, showPanel = setupPanel, enableSettings = enableRequiredSettings, requirements = setupRequirements }) {
     let cancelPending;
     return async function guard(type, abort) {
         if (!['normal', 'regenerate', 'swipe', 'continue'].includes(type)) return true;
         cancelPending?.();
         if (!enabled()) return true;
         const context = getContext();
-        const initial = setupRequirements(context, type);
+        const initial = requirements(context, type);
         if (initial.ready) return true;
         const chat = context.chat, metadata = context.chatMetadata;
         const fingerprint = () => JSON.stringify(context.chat.map(m => [m.mes, m.is_user, m.is_system, m.swipe_id, m.swipes]));
@@ -106,7 +106,7 @@ export function createSetupGate({ getContext, enabled, disable, synchronize, sho
                     if (action === 'disable') disable();
                     if (action === 'enable') enableSettings(getContext());
                     synchronize();
-                    const report = setupRequirements(getContext(), type);
+                    const report = requirements(getContext(), type);
                     if (!enabled() || report.ready) return finish(true);
                     panel.update(report, actions);
                 } catch (error) {

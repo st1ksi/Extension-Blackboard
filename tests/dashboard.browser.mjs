@@ -35,7 +35,7 @@ window.notices = []; window.registered = new Map(); window.injected = new Map();
 window.toastr = Object.fromEntries(['info','success','warning','error'].map(type => [type, text => window.notices.push({type,text})]));
 const metadata = { variables: {} };
 const handlers = new Map();
-const events = ['CHAT_CHANGED','MESSAGE_DELETED','MESSAGE_SWIPED','GENERATION_STARTED','MESSAGE_RECEIVED','MESSAGE_SENT','TOOL_CALLS_PERFORMED','GENERATE_BEFORE_COMBINE_PROMPTS'];
+const events = ['CHAT_CHANGED','MESSAGE_DELETED','MESSAGE_SWIPED','GENERATION_STARTED','MESSAGE_RECEIVED','MESSAGE_SENT','TOOL_CALLS_PERFORMED','GENERATE_BEFORE_COMBINE_PROMPTS','CONNECTION_PROFILE_CREATED','CONNECTION_PROFILE_UPDATED','CONNECTION_PROFILE_DELETED','CONNECTION_PROFILE_LOADED'];
 window.emit = async (name, ...args) => { for (const handler of handlers.get(name)||[]) await handler(...args); };
 window.context = { chat: [], chatId:'Preview campaign', characterId:1, characters:[{}, {avatar:'preview-hero.png'}], chatMetadata:metadata, extensionSettings:{blackboard:{simulationFidelity:'ultra',privateReview:true,executionModeVersion:1}},
 eventTypes:Object.fromEntries(events.map(e=>[e,e])), eventSource:{on(name,fn){const list=handlers.get(name)||[]; list.push(fn); handlers.set(name,list);}}, registerFunctionTool:tool=>registered.set(tool.name,tool), unregisterFunctionTool:name=>registered.delete(name),
@@ -385,6 +385,9 @@ try {
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', event => { if (event.type() === 'error' && event.text().includes('Blackboard')) errors.push(event.text()); });
     const origin = `http://127.0.0.1:${server.address().port}`;
+    if (process.env.BB_CONNECTION_UI_ONLY) {
+        await checkSimulationConnectionProfiles(page, origin);
+    } else {
     await page.route('**/*', route => route.request().url().startsWith(origin) ? route.continue() : route.abort());
     await page.goto(origin);
     await page.waitForFunction(() => document.querySelector('#blackboard-dashboard') && window.registered.has('UpdateBlackboard'));
@@ -596,9 +599,11 @@ try {
     await checkCampaignSettings(page, origin);
     await checkCampaignLayers(page, origin);
     await checkAdditionalGameSystems(page, origin);
+    await checkSimulationConnectionProfiles(page, origin);
     await checkPrivateReportExport(page);
     assert.deepEqual(errors, []);
     console.log('Dashboard browser checks passed: real handlers, shared state/drafts, tools/prompts, actions, keyboard, desktop & mobile.');
+    }
 } finally {
     await browser?.close();
     server.close();
@@ -992,6 +997,111 @@ async function checkAdditionalGameSystems(parent,origin) {
         assert.deepEqual(errors,[]);
         console.log('Additional game profile browser checks passed: eight selectors, source/profile/preview parity, native/custom sync, local scope, reload, branch and 320px layout.');
     } finally {await context.close();}
+}
+
+async function checkSimulationConnectionProfiles(parent, origin) {
+    const isolated = await parent.context().browser().newContext();
+    try {
+        const page = await isolated.newPage();
+        const vaultRequests=[];
+        await page.setViewportSize({width:1440,height:1000});
+        let activeSecret='main-existing';
+        await page.route('**/scripts/secrets.js',route=>route.fulfill({contentType:'text/javascript',body:'export const SECRET_KEYS={CUSTOM:"api_key_custom"}; export async function readSecretState() {}'}));
+        await page.route('**/script.js',route=>route.fulfill({contentType:'text/javascript',body:'export const isGenerating=()=>false; export async function saveSettings() {}'}));
+        await page.route('**/simulation-connection.js',route=>route.fulfill({contentType:'text/javascript',body:'export async function resolveSimulationConnection(context,id){const profile=context.extensionSettings.connectionManager.profiles.find(p=>p.id===id);return {settings:{custom_url:"http://fixture.invalid"},descriptor:{source:"custom",name:profile.name}};}'}));
+        await page.route('**/api/secrets/*',async route=>{
+            const path=new URL(route.request().url()).pathname,body=route.request().postData()?route.request().postDataJSON():{};
+            if(path==='/api/secrets/read')return route.fulfill({json:{api_key_custom:[{id:activeSecret,active:true}]}});
+            vaultRequests.push({path,body});
+            if(path==='/api/secrets/write'){activeSecret='profile-new';return route.fulfill({json:{id:'profile-new'}});}
+            assert.equal(path,'/api/secrets/rotate');activeSecret=body.id;return route.fulfill({status:204,body:''});
+        });
+        await page.route('**/api/settings/get',async route=>route.fulfill({json:{settings:JSON.stringify(await page.evaluate(()=>({extension_settings:context.extensionSettings})))}}));
+        await page.goto(origin);
+        await page.waitForSelector('#blackboard_open_dashboard');
+        await page.evaluate(async () => {
+            context.chatCompletionSettings = { model: 'Main narration model', stream_openai: true };
+            context.CONNECT_API_MAP={custom:{selected:'openai',source:'custom'}};
+            context.getRequestHeaders=()=>({'Content-Type':'application/json'});
+            context.extensionSettings.connectionManager = { selectedProfile: 'main-profile', profiles: [
+                { id: 'vertex-profile', name: 'Vertex custom', mode: 'cc', api:'custom' },
+                { id: 'codex-profile', name: '<img src=x onerror=alert(1)>', mode: 'cc', api:'custom' },
+                { id: 'text-profile', name: 'Text only', mode: 'tc' },
+            ] };
+            await emit('CONNECTION_PROFILE_CREATED');
+        });
+        await page.locator('#blackboard_open_dashboard').click();
+        const panel = page.locator('#blackboard-dashboard');
+        const control = name => panel.locator(`[data-bb-control="blackboard_${name}"]`);
+        const connection = control('simulation_connection');
+        assert.equal(await connection.isDisabled(), true);
+        assert.equal(await connection.inputValue(), '');
+        await control('separate_narration').check();
+        assert.equal(await connection.isDisabled(), false);
+        assert.equal(await connection.locator('option').count(), 4);
+        assert.equal(await connection.locator('option[value="text-profile"]').evaluate(option => option.disabled), true,
+            await page.evaluate(() => JSON.stringify([...document.querySelectorAll('#blackboard_simulation_connection, [data-bb-control="blackboard_simulation_connection"]')].map(select => [...select.options].map(option => ({ value: option.value, disabled: option.disabled }))))));
+        assert.equal(await connection.locator('img').count(), 0);
+        assert.match(await connection.locator('option[value="codex-profile"]').textContent(), /<img/);
+        await connection.selectOption('vertex-profile');
+        assert.equal(await page.locator('#blackboard_simulation_connection').inputValue(), 'vertex-profile');
+        assert.equal(await page.evaluate(() => context.extensionSettings.blackboard.simulationConnectionProfile), 'vertex-profile');
+        await control('settings_scope').selectOption('chat');
+        await connection.selectOption('codex-profile');
+        assert.equal(await page.evaluate(() => context.chatMetadata.blackboard_settings.values.simulationConnectionProfile), 'codex-profile');
+        assert.equal(await page.evaluate(() => context.extensionSettings.blackboard.simulationConnectionProfile), 'vertex-profile');
+        await control('settings_scope').selectOption('global');
+        assert.equal(await connection.inputValue(), 'vertex-profile');
+        await page.evaluate(async () => {
+            context.extensionSettings.connectionManager.profiles[0].name = 'Renamed Vertex';
+            await emit('CONNECTION_PROFILE_UPDATED');
+        });
+        assert.equal(await connection.locator('option[value="vertex-profile"]').textContent(), 'Renamed Vertex');
+        await page.evaluate(async () => {
+            context.extensionSettings.connectionManager.profiles.shift();
+            await emit('CONNECTION_PROFILE_DELETED');
+        });
+        assert.equal(await connection.inputValue(), 'vertex-profile');
+        assert.equal(await connection.locator('option[value="vertex-profile"]').evaluate(option => option.disabled), true);
+        assert.match(await panel.locator('[data-bb-text="blackboard_simulation_connection_status"]').innerText(), /unavailable/);
+        assert.equal(await page.evaluate(() => context.extensionSettings.blackboard.simulationConnectionProfile), 'vertex-profile');
+        await connection.selectOption('');
+        const key=panel.locator('[data-bb-simulation-key]'),saveKey=panel.locator('[data-bb-save-simulation-key]');
+        await panel.locator('summary',{hasText:'API key for this profile'}).click();
+        assert.equal(await key.isDisabled(),true);
+        await connection.selectOption('codex-profile');
+        assert.equal(await key.getAttribute('type'),'password');assert.equal(await key.isDisabled(),false);
+        await key.fill('fixture-key-not-a-real-credential');await saveKey.click();
+        await panel.locator('[data-bb-simulation-key-status]').filter({hasText:'previous default key is unchanged'}).waitFor();
+        assert.equal(await key.inputValue(),'');assert.equal(activeSecret,'main-existing');
+        assert.equal(vaultRequests.length,2);
+        assert.equal(vaultRequests[0].body.value,'fixture-key-not-a-real-credential');
+        assert.equal(vaultRequests[1].body.id,'main-existing');
+        assert.equal(await page.evaluate(()=>context.extensionSettings.connectionManager.profiles.find(p=>p.id==='codex-profile')['secret-id']),'profile-new');
+        assert.ok(!(await page.evaluate(()=>JSON.stringify([context.extensionSettings,context.chatMetadata]))).includes('fixture-key-not-a-real-credential'));
+        await key.fill('unsubmitted-draft');await panel.locator('[data-bb-close]').click();
+        await page.locator('#blackboard_open_dashboard').click();assert.equal(await key.inputValue(),'');
+        await key.fill('another-unsubmitted-draft');await control('settings_scope').selectOption('chat');assert.equal(await key.inputValue(),'');
+        await control('settings_scope').selectOption('global');
+        if(output){
+            await mkdir(output,{recursive:true});
+            await page.evaluate(async()=>{
+                context.extensionSettings.connectionManager.profiles.find(profile=>profile.id==='codex-profile').name='Simulation API (example)';
+                await emit('CONNECTION_PROFILE_UPDATED');
+            });
+            await control('separate_narration').evaluate(input=>input.closest('.bb-dash-section').scrollIntoView({block:'start'}));
+            await panel.screenshot({animations:'disabled',path:resolve(output,'control-panel.png')});
+        }
+        await page.setViewportSize({ width: 320, height: 780 });
+        await connection.scrollIntoViewIfNeeded();
+        assert.ok(await panel.evaluate(element => [element, ...element.querySelectorAll('.bb-dash-scroll,.bb-dash-pane:not([hidden])')]
+            .every(item => item.scrollWidth <= item.clientWidth + 1)), 'Simulation connection choices fit a 320px viewport.');
+        await control('separate_narration').uncheck();
+        assert.equal(await connection.isDisabled(), true);
+        assert.equal(await page.evaluate(() => context.extensionSettings.connectionManager.selectedProfile), 'main-profile');
+        assert.deepEqual(await page.evaluate(() => context.chatCompletionSettings), { model: 'Main narration model', stream_openai: true });
+        console.log('Simulation connection UI passed: native/custom sync, safe dynamic names, profile events, missing-profile retention, Global/This chat, masked vault save/default restoration, draft clearing and unchanged main connection.');
+    } finally { await isolated.close(); }
 }
 
 async function checkPrivateReportExport(page) {
